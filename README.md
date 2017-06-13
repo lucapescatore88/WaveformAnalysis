@@ -15,9 +15,9 @@ modify the file ```Reformat_all.sh``` in such a waz to point to the folder of in
 5. Run the analysis:
 
 ```
-./output -d /production2/Analysis_waveforms/H2017/H2017_XX_chYY/ -S /production2/Analysis_waveforms/H2017/H2017_XX_chYY/cfg.txt -o /production2/Analysis_waveforms/H2017/H2017_XX_chYY/ -a```
+./output -d /production2/Analysis_waveforms/H2017/H2017_XX_chYY/ -S /production2/Analysis_waveforms/H2017/H2017_XX_chYY/cfg.txt -o /production2/Analysis_waveforms/H2017/H2017_XX_chYY/ -a
+```
  
-
 ## Compilation:
 1. source compile.sh (on a 64 bit platform, otherwise compile_32.sh)
 
