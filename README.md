@@ -1,7 +1,7 @@
 # Analysis_waveforms
 Original programmed by Felipe Ortega 2016
 
-
+====
 
 The code reads out waveforms taken with an oscilloscope
 and characterizes them in order to quantify the noise
