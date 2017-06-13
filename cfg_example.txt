@@ -1,0 +1,19 @@
+####Comments
+### Default threshold values:
+### Rej_t: 4[ns], AP_th: 0.38[pe], Delay_th: 0.85[pe], Imm_th: 1.17[pe]
+### If especial thresholds are needed use V/th, otherwise default values are used
+
+## Example:
+## V/th || 37.0V ||
+## Rej_t: 4.0, AP_th: 0.5, Delay_th: 0.85, Imm_th: 1.35
+## V || 37.5V ||
+
+V || 56.5V ||
+V || 57.0V ||
+V || 57.5V ||
+
+
+
+#V || 57.5V ||
+
+Files at each voltage || 100 ||
