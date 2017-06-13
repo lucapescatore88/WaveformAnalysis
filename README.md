@@ -1,15 +1,16 @@
 # Analysis_waveforms
 Original programmed by Felipe Ortega 2016
 
-====
+==============================
 
 The code reads out waveforms taken with an oscilloscope
 and characterizes them in order to quantify the noise
  of a SiPM.
 
 To run here is an example:
+```
 ./output -d /Users/Analysis_waveforms/ov_example/ -S /Users/Analysis_waveforms/config_file.txt -o /Users/Analysis_waveforms/Results/ -a
-
+```
 
 Compilation:
 sh compile.sh
