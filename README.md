@@ -9,7 +9,34 @@ The code reads out waveforms taken with an oscilloscope
 and characterizes them in order to quantify the noise of a SiPM.
 
 ## To run here is an example:
-1. Extract the folder inside Analysis_waveforms 
+1. Clone or download the repository (and if necessary extract the repository) 
+2. Convert the binary files: ```python readbinary.py {data folder}```
+3. Create a configuration file ```Analysis_waveforms/cfg_example.txt```
+4. Compile: ```source compile.sh``` (on a 64 bit platform, otherwise compile_32.sh)
+5. Run the analysis:
+
+```
+./output -d {data folder} -S {path to config file} -o {existing output folder}
+```
+
+## Convention:
+1. Make a data capture on the oscilloscope (eg in 0.5V steps)
+2. Make a directory eg H2017_XX_chYY
+3. Create directories in this with name the bias voltage values "56.5V", an empty template is located on the oscilloscope
+5. Place the data directory in a local folder
+6. Run the analysis
+
+Points 1 to 3 can be done with the automatised data taking scripts.
+
+ROOT is necessary: -> root.cern.ch
+
+
+
+
+# Old instructions
+
+## To run here is an example:
+1. Clone or download the repository (and if necessary extract the repository) 
 2. Convert the files:
 modify the file ```Reformat_all.sh``` in such a waz to point to the folder of interest: ```Analysis_waveforms/H2017/H2017_XX_chYY``` where XX is the detector number and YY is the channel number
 3. Run ```source Reformat_all.sh```
