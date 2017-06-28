@@ -1,10 +1,12 @@
 # Analysis_waveforms
-Original programmed by Felipe Ortega 2016
 ======
 
+Original programmed by Felipe Ortega 2016
+
+Modified by Luca Pescatore in 2017
+
 The code reads out waveforms taken with an oscilloscope
-and characterizes them in order to quantify the noise
- of a SiPM.
+and characterizes them in order to quantify the noise of a SiPM.
 
 ## To run here is an example:
 1. Extract the folder inside Analysis_waveforms 
