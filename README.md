@@ -26,7 +26,7 @@ and characterizes them in order to quantify the noise of a SiPM.
 5. Place the data directory in a local folder
 6. Run the analysis
 
-Points 1 to 3 can be done with the automatised data taking scripts.
+Points 1 to 3 can be done with the automatised data taking scripts into OscilloscopeControl.
 
 ROOT is necessary: -> root.cern.ch
 
