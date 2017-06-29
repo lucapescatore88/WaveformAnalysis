@@ -1,84 +1,28 @@
-
-//
-//  Noise_analysis.C
-//  
 //
 //  Created by Felipe Gilberto Ortega on 25/04/16.
-//
+//  Modified by Luca Pescatore, luca.pescatore@cern.ch on 28/06/2017   
 //
  
 #include "Noise_analysis_largeEvent.h"
 #include "Thresholds.h"
 #include "fits.h"
-#include "genparam.h"
-
-static const char * optString = "d:S:o:ah?";
 
 using namespace std;
 
 int main(int argc, char* argv[]) 
 {    
-    // Get paremeters from the command line
+    gROOT->ProcessLine(".x Analysis/lhcbStyle.C");
+    gStyle->SetOptStat(0);
 
-    int opt = getopt(argc, argv, optString);
-    if(opt == -1){
-        std::cerr <<  "There is no opption in the command! Type \"output -h\" for help." << std::endl;
-        exit(EXIT_FAILURE);
-    }
-    
-    while(opt != -1){
-        switch(opt){
-            case 'd':
-                globalArgs.data_folder = optarg;
-                std::cout << "-p option path= " << globalArgs.data_folder << std::endl;
-                break;
-            case 'S':
-                globalArgs.arg_pathToSetupFile = optarg;
-                break;
-            case 'o':
-                globalArgs.res_folder = optarg;
-                break;
-            case 'a':
-                globalArgs.save_all = true;
-                break;
-            case 'h':
-            case '?':
-                std::cerr << "Usage: output -d pathToData -S pathToSetupFile -o pathToResultsFolder [-a]" << std::endl;
-                std::cerr << "----------------------------------------------------------------------------------------------------" << std::endl;
-                std::cerr << " '-d'+'-S'+'-o' options are necessary!" << std::endl;
-                std::cerr << "-----------------------------------------------------------------------------------------------------" << std::endl;
-                std::cerr << " use '-a' option afterwards to save all the plots of the analysis to further check." << std::endl;
-                std::cerr << "-----------------------------------------------------------------------------------------------------" << std::endl;
-                std::cerr << "Example: ./output -d /Users/Analysis_waveforms/ov_scan_pde_H2014/ -S /Users/Analysis_waveforms/config_file.txt -o /Users/Analysis_waveforms/Plots/ [-a]"<<std::endl;
-                exit(EXIT_FAILURE);
-                break;
-            default:
-                break;
-        }
-        opt = getopt(argc, argv, optString);
-    }
-    
-    if((strncmp(globalArgs.data_folder," ",1) == 0|| strncmp(globalArgs.arg_pathToSetupFile," ",1) == 0)){
-        std::cerr << "ERROR: -d or -S option is not set! Both of them has to be set correctly!"<<std::endl;
-        exit(EXIT_FAILURE);
-    }
-    
-    if(strncmp(globalArgs.res_folder," ",1) == 0){
-        std::cerr << "ERROR: -o option is not set! It has to be set up correctly!"<<std::endl;
-        exit(EXIT_FAILURE);
-    }
-            
+    // Get paremeters from the command line
+    setOptions(argc, argv);
+
     ifstream setupFile(globalArgs.arg_pathToSetupFile);
     if(!setupFile){
         std::cerr << "Failure: could not open file: \"" << globalArgs.arg_pathToSetupFile << "\"." << std::endl;
         std::cerr << "Please check if the path is correct or not!" << std::endl;
         exit(EXIT_FAILURE);
     }
-    
-
-    ////////////////
-    //Define thresholds
-    ////////////////
 
     // Read setup file and load input .root
 
@@ -98,7 +42,7 @@ int main(int argc, char* argv[])
         {"#Total",       new TGraphErrors()},
         {"#SecPeaks",    new TGraphErrors()},
         {"#SecPeaksCT",  new TGraphErrors()},
-        {"#SecPeaksDCT", new TGraphErrors()} };
+        {"#SecPeaksDT",  new TGraphErrors()} };
 
     Char_t Category[15];
     Double_t V_meas;
@@ -161,10 +105,10 @@ int main(int argc, char* argv[])
         V_meas = vol_folders[i].Atof() - VBD;
          
         map<string,TCanvas *> canv {
-            {"CT",    new TCanvas(Form("Direct CrossTalk OV = %2.2f V",V_meas),Form("Direct CrossTalk OV = %2.2f V",V_meas),100,100,900,700)},
-            {"DCT",   new TCanvas(Form("Delayed CrossTalk OV = %2.2f V",V_meas),Form("Delayed CrossTalk OV = %2.2f V",V_meas),100,100,900,700)},
-            {"AP",    new TCanvas(Form("After Pulse OV = %2.2f V",V_meas),Form("After Pulse OV = %2.2f V",V_meas),100,100,900,700)},
-            {"clean", new TCanvas(Form("Clean OV = %2.2f V",V_meas),Form("Clean OV = %2.2f V",V_meas),100,100,900,700)}
+            {"CT",    new TCanvas(Form("Direct CrossTalk OV = %2.2f V",V_meas))},
+            {"DCT",   new TCanvas(Form("Delayed CrossTalk OV = %2.2f V",V_meas))},
+            {"AP",    new TCanvas(Form("After Pulse OV = %2.2f V",V_meas))},
+            {"clean", new TCanvas(Form("Clean OV = %2.2f V",V_meas))}
         };
         
         TGraph * Expfit_AP      = new TGraph();
@@ -173,7 +117,7 @@ int main(int argc, char* argv[])
         TH1D * DeXT_arrivaltime = new TH1D("Histo_DeXT","DeXT arrival time", 140, 0, 0.2e-6);
         TH1D * Npeaks           = new TH1D("Histo_Npeaks","Number of noise peaks when not clean", 50, 0, 50);
         TH1D * NpeaksCT         = new TH1D("Histo_NpeaksCT","Number of noise peaks when direct CT", 50, 0, 50);
-        TH1D * NpeaksDCT        = new TH1D("Histo_NpeaksDCT","Number of noise peaks when delayed CT", 50, 0, 50);
+        TH1D * NpeaksDT         = new TH1D("Histo_NpeaksDelayed","Number of noise peaks when delayed noise", 50, 0, 50);
 
         // Setup input tree
         TTree * tree = NULL;
@@ -188,6 +132,7 @@ int main(int argc, char* argv[])
             tree->SetBranchAddress("Times",&times);
             data_size = tree->GetEntries();
         }
+        hfile->cd();
 
         // Loop over every measurement on a folder
         for (int j = 0; j < data_size; j++)
@@ -293,7 +238,7 @@ int main(int argc, char* argv[])
 
                 DeXT_arrivaltime->Fill(time_of_max_DeXT);
                 Npeaks->Fill(noise_peaks_cnt);
-                NpeaksDCT->Fill(noise_peaks_cnt);
+                NpeaksDT->Fill(noise_peaks_cnt);
             }
             
             else if (after_pulse > 0) //  Only after pulse
@@ -308,6 +253,7 @@ int main(int argc, char* argv[])
                 Expfit_AP->SetPoint(after_pulse_cnt-1,time_of_max_first,sig_max_first);
                 AP_arrivaltime->Fill(time_of_max_first); 
                 Npeaks->Fill(noise_peaks_cnt);
+                NpeaksDT->Fill(noise_peaks_cnt);
             }
 	           
             else    // If not noisy then it's clean
@@ -326,7 +272,7 @@ int main(int argc, char* argv[])
                 {
                     nsaved++;
                     drawWave(waveform, &color["clean"], Form("Clean pulse OV = %2.2f V",V_meas), canv["clean"], 1.5*pe);                  
-		        }
+                }
 	        }
 
             otree->Fill();
@@ -367,8 +313,8 @@ int main(int argc, char* argv[])
         results["#SecPeaks"]->SetPointError(i,0.,Npeaks->GetMeanError());
         results["#SecPeaksCT"]->SetPoint(i,V_meas,NpeaksCT->GetMean());
         results["#SecPeaksCT"]->SetPointError(i,0.,NpeaksCT->GetMeanError());
-        results["#SecPeaksDCT"]->SetPoint(i,V_meas,NpeaksDCT->GetMean());
-        results["#SecPeaksDCT"]->SetPointError(i,0.,NpeaksDCT->GetMeanError());
+        results["#SecPeaksDT"]->SetPoint(i,V_meas,NpeaksDT->GetMean());
+        results["#SecPeaksDT"]->SetPointError(i,0.,NpeaksDT->GetMeanError());
         
         // Save/print reults:
         
@@ -377,7 +323,7 @@ int main(int argc, char* argv[])
  	    DeXT_arrivaltime->Write();
         Npeaks->Write();
         NpeaksCT->Write();
-        NpeaksDCT->Write();
+        NpeaksDT->Write();
         
         canv["CT"]->Print(globalArgs.res_folder+Form("Immcrosstalk_%s.pdf",vol));
         canv["DCT"]->Print(globalArgs.res_folder+Form("Delcrosstalk_%s.pdf",vol));
@@ -393,8 +339,8 @@ int main(int argc, char* argv[])
             tmpc->Print(globalArgs.res_folder+Form("Npeaks_%s.pdf",vol));
             NpeaksCT->Draw("HIST");
             tmpc->Print(globalArgs.res_folder+Form("Npeaks_whenCT_%s.pdf",vol));
-            NpeaksDCT->Draw("HIST");
-            tmpc->Print(globalArgs.res_folder+Form("Npeaks_whenDCT_%s.pdf",vol));
+            NpeaksDT->Draw("HIST");
+            tmpc->Print(globalArgs.res_folder+Form("Npeaks_whenDelayedNoise_%s.pdf",vol));
             delete tmpc;
         }
 
@@ -402,7 +348,7 @@ int main(int argc, char* argv[])
 	    delete DeXT_arrivaltime;
         delete Npeaks;
         delete NpeaksCT;
-        delete NpeaksDCT;
+        delete NpeaksDT;
         delete Expfit_AP;
         delete cleanforfit;
         for(auto const &e : canv) delete e.second;
@@ -447,6 +393,7 @@ int main(int argc, char* argv[])
     leg->AddEntry(results["#CT"],"Direct Cross-Talk","f");
     leg->AddEntry(results["#AP"],"After Pulse","f");
     leg->AddEntry(results["#DCT"],"Delayed Cross-Talk","f");
+    leg->SetFillColor(kWhite);
     leg->Draw();
     
     cfinal->SetGrid();
@@ -463,20 +410,22 @@ int main(int argc, char* argv[])
     results["#SecPeaks"]->Draw("ALP*");
 
     results["#SecPeaksCT"]->SetLineColor(kBlue);
-    results["#SecPeaksDCT"]->SetLineColor(kGreen+2);
+    results["#SecPeaksDT"]->SetLineColor(kGreen+2);
     results["#SecPeaksCT"]->SetMarkerColor(kBlue);
-    results["#SecPeaksDCT"]->SetMarkerColor(kGreen+2);
+    results["#SecPeaksDT"]->SetMarkerColor(kGreen+2);
     results["#SecPeaksCT"]->Draw("LP*");
-    results["#SecPeaksDCT"]->Draw("LP*");
+    results["#SecPeaksDT"]->Draw("LP*");
 
     leg = new TLegend(0.15,0.65,0.47,0.87);
     leg->AddEntry(results["#SecPeaks"],"After any noise","lp");
     leg->AddEntry(results["#SecPeaksCT"],"After Direct Cross-Talk","lp");
-    leg->AddEntry(results["#SecPeaksDCT"],"After Delayed Cross-Talk","lp");
+    leg->AddEntry(results["#SecPeaksDT"],"After any delayed noise","lp");
+    leg->SetFillColor(kWhite);
     leg->Draw();
     
-    cfinal->SetGrid();
     cfinal->Print(globalArgs.res_folder+"SecondaryPeaks.pdf");
+    cfinal->SetName("SecondaryPeaks");
+    cfinal->Write();
   
     return 0;
 }

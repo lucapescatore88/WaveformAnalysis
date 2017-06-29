@@ -34,10 +34,12 @@
 #include <TFitResult.h>
 #include <TFitResultPtr.h>
 #include <TSpectrum.h>
+#include <TROOT.h>
+#include <TStyle.h>
 
 using namespace std;
 
-//Amplitude of pe calculation of raw data
+// Amplitude of pe calculation of raw data
 
 TH1 * drawWave(TGraph * waveform, int * color, TString title, TCanvas * c, float ymax)
 {
@@ -56,7 +58,7 @@ TH1 * drawWave(TGraph * waveform, int * color, TString title, TCanvas * c, float
     //waveh->GetYaxis()->SetRangeUser(-0.02,0.1);
     //waveh->GetXaxis()->SetRangeUser(-40*ns,20*ns);
     waveh->GetYaxis()->SetTitle("Oscilloscope Signal [V]");
-    waveh->GetYaxis()->SetTitleOffset(1.3);
+    //waveh->GetYaxis()->SetTitleOffset(1.3);
     waveh->GetXaxis()->SetTitle("Time [s]");
 
     if((*color)==1)
@@ -102,11 +104,14 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
         {
             tree->GetEntry(j);
             waveform = new TGraph(nsamples,times,amps);
-            //if(j<4 && TString(vol_folder)=="54.0V") {
-            //TCanvas * c1 = new TCanvas();
-            //waveform->Draw("AP");
-            //c1->Print(Form("%i.pdf",j)); 
-            //}
+            
+            if(j < 4 && TString(vol_folder)=="54.0V")  
+            {
+                TCanvas * c1 = new TCanvas(Form("WaveTest_%i.pdf",j));
+                waveform->Draw("AP");
+                c1->Write();
+                //c1->Print(Form("%i.pdf",j)); 
+            }
         }
         else 
         {
@@ -236,6 +241,57 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
     }
 
     return vol_folders;
+}
+
+void setOptions(int argc, char* argv[], const char * optString = "d:S:o:ah?")
+{
+    int opt = getopt(argc, argv, optString);
+    if(opt == -1){
+        std::cerr <<  "There is no opption in the command! Type \"output -h\" for help." << std::endl;
+        exit(EXIT_FAILURE);
+    }
+    
+    while(opt != -1){
+        switch(opt){
+            case 'd':
+                globalArgs.data_folder = optarg;
+                std::cout << "-p option path= " << globalArgs.data_folder << std::endl;
+                break;
+            case 'S':
+                globalArgs.arg_pathToSetupFile = optarg;
+                break;
+            case 'o':
+                globalArgs.res_folder = optarg;
+                break;
+            case 'a':
+                globalArgs.save_all = true;
+                break;
+            case 'h':
+            case '?':
+                std::cerr << "Usage: output -d pathToData -S pathToSetupFile -o pathToResultsFolder [-a]" << std::endl;
+                std::cerr << "----------------------------------------------------------------------------------------------------" << std::endl;
+                std::cerr << " '-d'+'-S'+'-o' options are necessary!" << std::endl;
+                std::cerr << "-----------------------------------------------------------------------------------------------------" << std::endl;
+                std::cerr << " use '-a' option afterwards to save all the plots of the analysis to further check." << std::endl;
+                std::cerr << "-----------------------------------------------------------------------------------------------------" << std::endl;
+                std::cerr << "Example: ./output -d /Users/Analysis_waveforms/ov_scan_pde_H2014/ -S /Users/Analysis_waveforms/config_file.txt -o /Users/Analysis_waveforms/Plots/ [-a]"<<std::endl;
+                exit(EXIT_FAILURE);
+                break;
+            default:
+                break;
+        }
+        opt = getopt(argc, argv, optString);
+    }
+
+    if((strncmp(globalArgs.data_folder," ",1) == 0|| strncmp(globalArgs.arg_pathToSetupFile," ",1) == 0)){
+        std::cerr << "ERROR: -d or -S option is not set! Both of them has to be set correctly!"<<std::endl;
+        exit(EXIT_FAILURE);
+    }
+    
+    if(strncmp(globalArgs.res_folder," ",1) == 0){
+        std::cerr << "ERROR: -o option is not set! It has to be set up correctly!"<<std::endl;
+        exit(EXIT_FAILURE);
+    }
 }
 
 #endif 

@@ -25,6 +25,7 @@ double fitBreakdownVoltage(TGraph * Vbias_ver)
 
     TPaveText * pv = new TPaveText(0.2,0.65,0.35,0.74,"brNDC");
     pv->AddText(Form("V_{BD} = %2.2f",VBD));
+    pv->SetFillColor(kWhite);
     pv->Draw();
     ca->Print(globalArgs.res_folder+"Breakdown_voltage.pdf");
 
@@ -35,7 +36,7 @@ TF1 * fitLongTau(TGraph * cleanwaves, double * amp0, double * tau, double pe, co
 {
     TH1 * waveh = convertGrToH(cleanwaves);
 
-    TCanvas * ctmp = new TCanvas();
+    TCanvas * ctmp = new TCanvas(Form("LongTauFit_%s",vol));
 
     // Fit parameters and limits to calculate slow component of the pulse
     TF1 * exp_longtau = new TF1(Form("exptau_%s",vol),"[0]*exp(-x/[1])",0,180 * ns);
@@ -48,12 +49,14 @@ TF1 * fitLongTau(TGraph * cleanwaves, double * amp0, double * tau, double pe, co
     (*amp0) = exp_longtau->GetParameter(0);
     (*tau) = exp_longtau->GetParameter(1);
     std::cout << "Long tau = " << *tau << std::endl;
+    ctmp->Write();
     delete ctmp;
 
     c->cd();
 
     TPaveText * pv = new TPaveText(0.2,0.65,0.35,0.74,"brNDC");
     pv->AddText(Form("#tau_{long} = %2.2e ",*tau));
+    pv->SetFillColor(kWhite);
     pv->Draw();
     exp_longtau->Draw("SAME");
 
@@ -66,7 +69,7 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
 {
     // Fit parameters and limits to calculate AP recharge
 
-    TCanvas * ctmp = new TCanvas();
+    TCanvas * ctmp = new TCanvas(Form("APTauFit_%s",vol));
     APtime->Draw("AP*");
     TF1 * exp = new TF1(Form("exp_%s",vol),"(([0])/(exp(-4E-9/[1])))*(exp(-4E-9/[1])-exp(-x/[1]))+[2]*exp(-x/[3])",4*ns,180 * ns);
     exp->SetParameter(0,pe);
@@ -79,12 +82,14 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
     APtime->Fit(Form("exp_%s",vol));
     exp->Draw("same");
     //ctmp->Print(Form("APFit_%s.pdf",vol));
+    ctmp->Write();
     delete ctmp;
     
     c->cd();
     
     TPaveText * pv = new TPaveText(0.2,0.65,0.35,0.74,"brNDC");
     pv->AddText(Form("Recovery time = %2.2e ",exp->GetParameter(1)));
+    pv->SetFillColor(kWhite);
     pv->Draw();
     exp->Draw("SAME");
 

@@ -1,0 +1,11 @@
+#### Config file for PDE
+
+includes: [ 'C:\Users\lphe\Desktop\Oscilloscope_Control\config_file.yml' ]
+
+## Peak amplitude for each bias point[mV]
+
+PeakAmp : [15,21,27,33,39,45,51,57,63,69]
+
+## Edge detection Threshold
+
+EdgeThr : 0.6

@@ -52,7 +52,7 @@ for volt in voltages :                               # Loop on folders
         for i in range(len(datX)) :
             if i%samplesPerEvent == 0 : 
                 if i > 0 : t.Fill()
-                #if datX[i] > 200e-9 : 
+                #print datX[i]
                 delta = datX[i] - shift
                 
             if datX[i] - delta < -20e-9 : print "WRONG"

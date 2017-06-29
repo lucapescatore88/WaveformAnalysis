@@ -1,0 +1,29 @@
+#### Config file for Oscilloscope control
+
+## Number of bias voltage to be recorded 
+
+NumberOfBias : 10
+
+## SiPM Name
+
+SiPMName : H2017_binary
+
+## Bias Voltage H2017 Vbd=52.5V
+
+Voltage : [54.0,54.5,55.0,55.5,56.0,56.5,57.0,57.5,58.0,58.5]
+
+## Trigger level for each bias points[mV]
+
+TriggerLevel : [8,10,10,15,15,15,15,15,15,15]
+
+## Vertical Scale [mV]
+
+VerticalScale : [10,20,20,20,20,20,20,20,20,50]
+
+## Vertical Offset[mV]
+
+VerticalOffset : [-30,-60,-60,-60,-60,-60,-60,-60,-60,-150]
+
+## Keithley Port
+
+Port : COM3
