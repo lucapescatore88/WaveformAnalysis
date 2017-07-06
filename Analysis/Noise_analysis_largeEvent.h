@@ -41,6 +41,20 @@ using namespace std;
 
 // Amplitude of pe calculation of raw data
 
+TGraph * formatGr(TGraph * gr, int color, int fill_bkg, TString xtitle, TString ytitle, TString title = "")
+{
+    gr->SetLineColor(color);
+    gr->SetMarkerColor(color);
+    gr->SetFillColor(color);
+    gr->SetFillStyle(fill_bkg);
+    gr->SetMarkerSize(1);
+    if(title!="") gr->SetTitle(title);
+    gr->GetYaxis()->SetTitle(ytitle);
+    gr->GetXaxis()->SetTitle(xtitle);
+
+    return gr;
+}
+
 TH1 * drawWave(TGraph * waveform, int * color, TString title, TCanvas * c, float ymax)
 {
     c->cd();
@@ -49,18 +63,15 @@ TH1 * drawWave(TGraph * waveform, int * color, TString title, TCanvas * c, float
     if ((*color) > 20) (*color) = 2;
     
     TH1 * waveh = convertGrToH(waveform);
-    
+
+    waveh->SetMaximum(1.8*ymax);
     waveh->SetLineColor((*color));
     waveh->SetMarkerColor((*color));
     waveh->SetMarkerSize(1);
-    waveh->SetTitle(title);
-   
-    //waveh->GetYaxis()->SetRangeUser(-0.02,0.1);
-    //waveh->GetXaxis()->SetRangeUser(-40*ns,20*ns);
+    waveh->SetTitle(title); 
     waveh->GetYaxis()->SetTitle("Oscilloscope Signal [V]");
-    //waveh->GetYaxis()->SetTitleOffset(1.3);
     waveh->GetXaxis()->SetTitle("Time [s]");
-
+    
     if((*color)==1)
     {
         waveh->Draw("L");
@@ -94,6 +105,7 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
         tree->SetBranchAddress("Times",&times);
         data_size = tree->GetEntries();
     }
+    if(file) file->cd();
 
     //loop over every measurement on a folder
 
@@ -200,7 +212,7 @@ Double_t FindTimeRange(Int_t ROWS_DATA, Double_t *time, Double_t *volts,
 
 
 
-vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Thresholds_t> &thresholds)
+vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Thresholds> &thresholds)
 {
     string s;
     vector <TString> vol_folders;
@@ -222,8 +234,7 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
         if(sscanf(searchString, "V || %s ||", volt)==1)
         {
             vol_folders.push_back(volt);
-            Thresholds_t defThr{4, 2, 0.5, 1.17, 0.85, 0.4};
-            thresholds.push_back(defThr);
+            thresholds.push_back(Thresholds(default_thrs));
         }
         
         if(sscanf(searchString, "V/th || %s ||", volt)==1)
@@ -232,7 +243,7 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
             getline((*setupFile), s);
             const char* thresholds_string = s.c_str();
             sscanf(thresholds_string, "Rej_t: %lf, AP_th: %lf, Delay_th: %lf, Imm_th: %lf", &rt,&ap,&delay,&imme);
-            Thresholds_t defThr{rt, 2, ap, imme, delay, 0.4};
+            Thresholds defThr{rt, default_thrs.del_xtalk_minT, default_thrs.dir_xtalk_maxT, ap, imme, delay, 0.4};
             thresholds.push_back(defThr);
         }
         
@@ -243,7 +254,7 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
     return vol_folders;
 }
 
-void setOptions(int argc, char* argv[], const char * optString = "d:S:o:ah?")
+void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:ah?")
 {
     int opt = getopt(argc, argv, optString);
     if(opt == -1){
@@ -265,6 +276,9 @@ void setOptions(int argc, char* argv[], const char * optString = "d:S:o:ah?")
                 break;
             case 'a':
                 globalArgs.save_all = true;
+                break;
+            case 'T':
+                globalArgs.fixed_thr = atof(optarg);
                 break;
             case 'h':
             case '?':

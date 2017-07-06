@@ -27,7 +27,7 @@ int main(int argc, char* argv[])
     // Read setup file and load input .root
 
     Int_t data_size;
-    vector <Thresholds_t> thrs;
+    vector <Thresholds> thrs;
     vector <TString> vol_folders = readSetupFile(&setupFile,&data_size,thrs);
     const int vol_size = vol_folders.size();
     
@@ -48,9 +48,25 @@ int main(int argc, char* argv[])
     Double_t V_meas;
 
     TFile * hfile = TFile::Open(TString(globalArgs.res_folder) + "noiseanalysis.root","RECREATE");
-    TTree * otree = new TTree("T","Noise Analysis");
+    TTree * otree = new TTree("ClassifiedData","ClassifiedData");
+    int npts, noise_peaks_cnt;
+    int xtalk_pulse, after_pulse;
+    double times[10000], amps[10000];
+    double V, pe, CT_thr, DCT_thr, AP_thr;
+
     otree->Branch("Category",Category,"Category/C");
     otree->Branch("V_meas",&V_meas,"V_meas/D"); 
+    otree->Branch("NsampPerEv",&npts,"NsampPerEv/I");
+    otree->Branch("Amps",&amps,"Amps[NsampPerEv]/D");
+    otree->Branch("Times",&times,"Times[NsampPerEv]/D");
+    otree->Branch("NnoisePeaks",&noise_peaks_cnt,"NnoisePeaks/I");
+    otree->Branch("NAfterPulses",&after_pulse,"NAfterPulses/I");
+    otree->Branch("NDelayedCT",&xtalk_pulse,"NDelayedCT/I");
+    otree->Branch("V",&V,"V/D");
+    otree->Branch("pe",&pe,"pe/D");
+    otree->Branch("CT_thr",&CT_thr,"CT_thr/D");
+    otree->Branch("DCT_thr",&DCT_thr,"DCT_thr/D");
+    otree->Branch("AP_thr",&AP_thr,"AP_thr/D");
 
 
     /////////////////
@@ -63,7 +79,7 @@ int main(int argc, char* argv[])
     int i = 0;
     for (auto vol : vol_folders) 
     {
-        pe_volt.push_back(Amplitude_calc(vol, data_size, "root"));
+        pe_volt.push_back(Amplitude_calc(vol, data_size, "root", hfile));
         Vbias_ver->SetPoint(i, pe_volt.back(), vol.Atof()); i++;
         std::cout << Form("(Voltge,Mean amplitude) = (%f,%f)", vol.Atof(), pe_volt.back()) << "\n" << std::endl;
     }
@@ -93,6 +109,7 @@ int main(int argc, char* argv[])
         // Counters 
 
         unsigned int events_cnt = 0;
+        unsigned int tot_noise_peaks_cnt = 0;
         unsigned int counter_notclean = 0;
         unsigned int direct_xtalk_pulse_cnt = 0;
         unsigned int xtalk_pulse_cnt = 0;
@@ -101,8 +118,9 @@ int main(int argc, char* argv[])
         
         // Define amplitude measured at which OV
         
-        Double_t pe = pe_volt[i];
-        V_meas = vol_folders[i].Atof() - VBD;
+        V = vol_folders[i].Atof();
+        pe = pe_volt[i];
+        V_meas = V - VBD;
          
         map<string,TCanvas *> canv {
             {"CT",    new TCanvas(Form("Direct CrossTalk OV = %2.2f V",V_meas))},
@@ -113,17 +131,14 @@ int main(int argc, char* argv[])
         
         TGraph * Expfit_AP      = new TGraph();
         TGraph * cleanforfit    = NULL;
-	    TH1D * AP_arrivaltime   = new TH1D("Histo_AP","AP arrival time", 140, 0, 0.2e-6);
-        TH1D * DeXT_arrivaltime = new TH1D("Histo_DeXT","DeXT arrival time", 140, 0, 0.2e-6);
+	    TH1D * AP_arrivaltime   = new TH1D("Histo_AP","AP arrival times", 140, 0, 0.2e-6);
+        TH1D * DeXT_arrivaltime = new TH1D("Histo_DeXT","DeXT arrival times", 140, 0, 0.2e-6);
         TH1D * Npeaks           = new TH1D("Histo_Npeaks","Number of noise peaks when not clean", 50, 0, 50);
         TH1D * NpeaksCT         = new TH1D("Histo_NpeaksCT","Number of noise peaks when direct CT", 50, 0, 50);
         TH1D * NpeaksDT         = new TH1D("Histo_NpeaksDelayed","Number of noise peaks when delayed noise", 50, 0, 50);
 
         // Setup input tree
         TTree * tree = NULL;
-        int npts;
-        double times[10000];
-        double amps[10000];
         if(globalArgs.input=="root") 
         {   
             tree = (TTree*)ifile->Get(vol);
@@ -133,6 +148,8 @@ int main(int argc, char* argv[])
             data_size = tree->GetEntries();
         }
         hfile->cd();
+
+        Thresholds cthrs = thrs[i];
 
         // Loop over every measurement on a folder
         for (int j = 0; j < data_size; j++)
@@ -160,53 +177,56 @@ int main(int argc, char* argv[])
             // Data filtering into the different type of events
             // direct x-talk  AP   delayed x-talk
             /////////////////////////////////////////////////////
-            unsigned int after_pulse = 0;
-            unsigned int xtalk_pulse = 0;
+            noise_peaks_cnt = 0;
+            after_pulse = 0;
+            xtalk_pulse = 0;
             unsigned int direct_xtalk_pulse = 0;
-            unsigned int time_of_pulse = 0;
-            unsigned int sig_max = 0;
-            unsigned int noise_peaks_cnt = 0;
-            double sig_max_first = -1;
-            double time_of_max_first = -1;
-            double time_of_max_DeXT = 0;
             
-            for (int row = 0; row < npts; row++) 
+            CT_thr = cthrs.dir_xtalk * pe;
+            DCT_thr = cthrs.del_xtalk * pe;
+            AP_thr = cthrs.AP * pe;
+            if(globalArgs.fixed_thr > 0.) 
             {
-                /////////////////////////////////////////////////////
-                // direct x-talk
-                if ( time[row] > 0 && volts[row] > thrs[i].direct_xtalk * pe ) // time larger 0ns
-                    direct_xtalk_pulse++;  
+                CT_thr = globalArgs.fixed_thr;
+                DCT_thr = globalArgs.fixed_thr;
+                AP_thr = globalArgs.fixed_thr;
+            }
 
-                /////////////////////////////////////////////////////
-                // after-pulse threshold
-                if ( time[row]>thrs[i].reject_time*ns && volts[row] > thrs[i].after_pulse * pe ) // time larger 2ns and ap_th
-                    after_pulse++;
+            bool done = false;
+            //cout << "New Evt " << j+1<< endl;
+            for (int row = 2; row < npts-2; row++) 
+            {
+                double curT = time[row];
+                double curV = volts[row];
 
-                /////////////////////////////////////////////////////
-                // delayed x-talk
-                if ( time[row] > thrs[i].delxtalk_reject_time*ns && volts[row] > thrs[i].xtalk * pe ) // time larger 4ns and larger xtalk_th
-                { 
-                    xtalk_pulse++;
-                    time_of_max_DeXT = time[row];
+                // Skip if not on a maximum                
+                if( curT < 0. || !( curV > volts[row-2] && curV > volts[row+2]) ) continue;
+                else if (done) { done = false; continue; }
+                done = true;
+
+                // Direct x-talk: in 0-2 ns window and V > direct th.
+                if( curT <= cthrs.dir_xtalk_maxT * ns && curV > CT_thr ) 
+                {
+                    direct_xtalk_pulse++;
+                    //if (direct_xtalk_pulse > 1) cout << "CT   "  << curT << "  PE  " << curV << endl;
+                    //noise_peaks_cnt++; // Don't count peak as it is over the DCR?
                 }
 
-                /////////////////////////////////////////////////////////////////////
-                // Detect peaks in data after 4ns, count the number of maxima and
-                // measure the time of arrival of first maxima, used later for AP exp fit
-                /////////////////////////////////////////////////////////////////////
-
-		        if (time[row] > thrs[i].reject_time*ns    // time larger 4ns
-                        && volts[row] >= volts[row-1] && volts[row] >= volts[row-2] 
-                        && volts[row] >= volts[row+1] && volts[row] >= volts[row+2] 
-                        && volts[row] > thrs[i].after_pulse * pe) 
+                // Delayed x-talk: time larger than end of DCR window and V > delayed CT th
+                else if ( curT > cthrs.dir_xtalk_maxT * ns && curV > DCT_thr )
                 {
+                    xtalk_pulse++;
                     noise_peaks_cnt++;
+                    DeXT_arrivaltime->Fill(curT);
+                }
 
-                    if (sig_max_first < 0)
-                    {
-				        sig_max_first     = volts[row];
-				        time_of_max_first = time[row];
-                    }
+                // After-pulse: time larger 2ns and V > AP th
+                else if ( curT > cthrs.AP_minT * ns && curV > AP_thr)
+                {
+                    after_pulse++;
+                    noise_peaks_cnt++;
+                    Expfit_AP->SetPoint(Expfit_AP->GetN(),curT,curV);
+                    AP_arrivaltime->Fill(curT); 
                 }
 
             } // loop over time
@@ -214,9 +234,10 @@ int main(int argc, char* argv[])
 
             if (direct_xtalk_pulse > 0)  // Check for imm x-talk and plot
             {
+                if(direct_xtalk_pulse > 1) cout << "Attention: more then one direct CT found" << endl;
                 direct_xtalk_pulse_cnt++;
                 counter_notclean++;
-                sprintf(Category,"ImmCrosstalk");
+                sprintf(Category,"Direct_Crosstalk");
                 canv["CT"]->cd();
 
                 TString graph_title = Form("Direct CrossTalk OV = %2.2f V",V_meas);
@@ -226,34 +247,31 @@ int main(int argc, char* argv[])
                 NpeaksCT->Fill(noise_peaks_cnt);
             }
             
-            else if (xtalk_pulse > 0) // Only delayed x-talk
+            else if (xtalk_pulse > 0) // Delayed x-talk
             {
                 xtalk_pulse_cnt++;
                 counter_notclean++;
-                sprintf(Category,"DelCrosstalk");
+                sprintf(Category,"Delayed_Crosstalk");
                 canv["DCT"]->cd();
                 
                 TString graph_title = Form("Delayed cross-talk OV = %2.2f V",V_meas);
                 drawWave(waveform, &color["DCT"], graph_title, canv["DCT"], 1.5*pe);
 
-                DeXT_arrivaltime->Fill(time_of_max_DeXT);
                 Npeaks->Fill(noise_peaks_cnt);
-                NpeaksDT->Fill(noise_peaks_cnt);
+                NpeaksDT->Fill(noise_peaks_cnt-1);
             }
             
             else if (after_pulse > 0) //  Only after pulse
             {
                 after_pulse_cnt++;
                 counter_notclean++;
-                sprintf(Category,"AfterPulse");
+                sprintf(Category,"After_Pulse");
 
                 TString graph_title = Form("After pulse OV = %2.2f V",V_meas);
                 drawWave(waveform, &color["AP"], graph_title, canv["AP"], 1.5*pe);
 
-                Expfit_AP->SetPoint(after_pulse_cnt-1,time_of_max_first,sig_max_first);
-                AP_arrivaltime->Fill(time_of_max_first); 
                 Npeaks->Fill(noise_peaks_cnt);
-                NpeaksDT->Fill(noise_peaks_cnt);
+                NpeaksDT->Fill(noise_peaks_cnt-1);
             }
 	           
             else    // If not noisy then it's clean
@@ -275,19 +293,31 @@ int main(int argc, char* argv[])
                 }
 	        }
 
+            tot_noise_peaks_cnt += noise_peaks_cnt;
+
             otree->Fill();
             
             delete time;
             delete volts;
         }
        
+        double perc_noise_peaks = tot_noise_peaks_cnt / (float)(tot_noise_peaks_cnt + events_cnt);
+        double perc_CT  = direct_xtalk_pulse_cnt / (float)events_cnt;
+        double perc_DCT = xtalk_pulse_cnt / (float)events_cnt;
+        double perc_AP  = after_pulse_cnt / (float)events_cnt;
+        //double perc_tot = perc_CT + perc_DCT + perc_AP;
+        double perc_Sec = (tot_noise_peaks_cnt - after_pulse_cnt - xtalk_pulse_cnt) / (float)(tot_noise_peaks_cnt + events_cnt);
+
         cout << "----- Total number of events: " << events_cnt << endl;
         cout << Form("----- Not clean events: %i [%.2f%%]",counter_notclean, (float)(counter_notclean/events_cnt*100)) << endl;
         cout << Form("     (DirXtalk = %i [%.2f%%], DelXtalk = %i [%.2f%%], AP = %i [%.2f%%])",
-            (int)direct_xtalk_pulse_cnt, (float)(direct_xtalk_pulse_cnt/events_cnt*100),
-            (int)xtalk_pulse_cnt, (float)(xtalk_pulse_cnt/events_cnt*100),
-            (int)after_pulse_cnt, (float)(after_pulse_cnt/events_cnt*100) ) << endl;
+            (int)direct_xtalk_pulse_cnt, perc_CT*100.,
+            (int)xtalk_pulse_cnt, perc_DCT*100,
+            (int)after_pulse_cnt, perc_AP*100 ) << endl;
+        cout << "     Total probability of secondary peaks: " << Form("%.2f%%",perc_Sec*100.) << endl;
+        cout << "     Percent of noise peaks over the total (P_all): " << Form("%.2f%%",perc_noise_peaks*100.) << endl;
 
+        cout << "\n-----> PE: " << pe << endl;
         cout << "-----> Long tau fit ***" << endl;
         double amp0, tau;
         fitLongTau(cleanforfit, &amp0, &tau, pe, vol, canv["clean"]);
@@ -296,10 +326,7 @@ int main(int argc, char* argv[])
         fitAPTau(Expfit_AP, amp0, tau, pe, vol, canv["AP"])->Write();
 
         // Final result: Correlated noise
-        double perc_CT  = (float)direct_xtalk_pulse_cnt/events_cnt;
-        double perc_DCT = (float)xtalk_pulse_cnt/events_cnt;
-        double perc_AP  = (float)after_pulse_cnt/events_cnt;
-        double perc_tot = perc_CT + perc_DCT + perc_AP;
+
 
         results["#CT"]->SetPoint(i,V_meas,perc_CT*100.);
         results["#CT"]->SetPointError(i,0.,TMath::Sqrt(perc_CT*(1.-perc_CT)/events_cnt)*100.);
@@ -307,10 +334,11 @@ int main(int argc, char* argv[])
         results["#AP"]->SetPointError(i,0.,TMath::Sqrt(perc_AP*(1.-perc_AP)/events_cnt)*100.);
         results["#DCT"]->SetPoint(i,V_meas,perc_DCT*100.);
         results["#DCT"]->SetPointError(i,0.,TMath::Sqrt(perc_DCT*(1.-perc_DCT)/events_cnt)*100.);
-        results["#Total"]->SetPoint(i,V_meas,perc_tot*100.);
-        results["#Total"]->SetPointError(i,0.,TMath::Sqrt(perc_tot*(1.-perc_tot)/events_cnt)*100.);
-        results["#SecPeaks"]->SetPoint(i,V_meas,Npeaks->GetMean());
-        results["#SecPeaks"]->SetPointError(i,0.,Npeaks->GetMeanError());
+
+        results["#Total"]->SetPoint(i,V_meas,perc_noise_peaks*100.);
+        results["#Total"]->SetPointError(i,0.,TMath::Sqrt(perc_noise_peaks*(1.-perc_noise_peaks)/(tot_noise_peaks_cnt + events_cnt))*100.);
+        results["#SecPeaks"]->SetPoint(i,V_meas,perc_Sec*100.);
+        results["#SecPeaks"]->SetPointError(i,0.,TMath::Sqrt(perc_Sec*(1.-perc_Sec)/events_cnt)*100.);
         results["#SecPeaksCT"]->SetPoint(i,V_meas,NpeaksCT->GetMean());
         results["#SecPeaksCT"]->SetPointError(i,0.,NpeaksCT->GetMeanError());
         results["#SecPeaksDT"]->SetPoint(i,V_meas,NpeaksDT->GetMean());
@@ -362,37 +390,26 @@ int main(int argc, char* argv[])
     
     Double_t tot_max_noise = TMath::MaxElement(results["#Total"]->GetN(),results["#Total"]->GetY());
     
-    results["#Total"]->SetTitle("Correlated Noise");
-    results["#Total"]->SetMarkerColor(kBlack);
-    results["#Total"]->SetLineColor(kBlack);
+    formatGr(results["#Total"], kBlack, 3005, "OverVoltage [V]", "Noise [%]", "Correlated Noise");
     results["#Total"]->GetYaxis()->SetRangeUser(0,tot_max_noise+2);
-    results["#Total"]->GetYaxis()->SetTitle("Noise [%]");
-    results["#Total"]->GetXaxis()->SetTitle("OverVoltage [V]");
-    results["#Total"]->SetFillColor(kBlack);
-    results["#Total"]->SetFillStyle(3005);
+    formatGr(results["#CT"], kBlue, 3005, "OverVoltage [V]", "Noise [%]");
+    formatGr(results["#AP"], kOrange+7, 3005, "OverVoltage [V]", "Noise [%]");
+    formatGr(results["#DCT"], kGreen+2, 3005, "OverVoltage [V]", "Noise [%]");
+    formatGr(results["#SecPeaks"], 7, 3005, "OverVoltage [V]", "Noise [%]");
+
     results["#Total"]->Draw("ALP*3");
-    
-    results["#CT"]->SetLineColor(kBlue);
-    results["#AP"]->SetLineColor(kOrange+7);
-    results["#DCT"]->SetLineColor(kGreen+2);
-    results["#CT"]->SetFillColor(kBlue);
-    results["#AP"]->SetFillColor(kOrange+7);
-    results["#DCT"]->SetFillColor(kGreen+2);
-    results["#CT"]->SetFillStyle(3005);
-    results["#AP"]->SetFillStyle(3005);
-    results["#DCT"]->SetFillStyle(3005);
-    results["#CT"]->SetMarkerColor(kBlue);
-    results["#AP"]->SetMarkerColor(kOrange+7);
-    results["#DCT"]->SetMarkerColor(kGreen+2);
     results["#CT"]->Draw("LP*3");
     results["#AP"]->Draw("LP*3");
     results["#DCT"]->Draw("LP*3");
+    results["#SecPeaks"]->Draw("LP*3");
     
     TLegend * leg = new TLegend(0.15,0.65,0.47,0.87);
     leg->AddEntry(results["#Total"],"Total","f");
     leg->AddEntry(results["#CT"],"Direct Cross-Talk","f");
     leg->AddEntry(results["#AP"],"After Pulse","f");
     leg->AddEntry(results["#DCT"],"Delayed Cross-Talk","f");
+    leg->AddEntry(results["#SecPeaks"],"Secondary noise","f");
+
     leg->SetFillColor(kWhite);
     leg->Draw();
     
@@ -400,24 +417,15 @@ int main(int argc, char* argv[])
     cfinal->Print(globalArgs.res_folder+"CorrelatedNoise.pdf");
     cfinal->Write();
 
-    Double_t tot_max_peaks = TMath::MaxElement(results["#SecPeaks"]->GetN(),results["#SecPeaks"]->GetY());
-    results["#SecPeaks"]->SetTitle("Secondary peaks after a noise peak");
-    results["#SecPeaks"]->SetMarkerColor(kBlack);
-    results["#SecPeaks"]->SetLineColor(kBlack);
-    results["#SecPeaks"]->GetYaxis()->SetRangeUser(0,tot_max_peaks*2.);
-    results["#SecPeaks"]->GetYaxis()->SetTitle("<N Secondary peaks>");
-    results["#SecPeaks"]->GetXaxis()->SetTitle("OverVoltage [V]");
-    results["#SecPeaks"]->Draw("ALP*");
-
-    results["#SecPeaksCT"]->SetLineColor(kBlue);
-    results["#SecPeaksDT"]->SetLineColor(kGreen+2);
-    results["#SecPeaksCT"]->SetMarkerColor(kBlue);
-    results["#SecPeaksDT"]->SetMarkerColor(kGreen+2);
-    results["#SecPeaksCT"]->Draw("LP*");
+    Double_t tot_max_peaks = TMath::MaxElement(results["#SecPeaksCT"]->GetN(),results["#SecPeaksCT"]->GetY());
+    results["#SecPeaksCT"]->SetTitle("Secondary peaks after a noise peak");
+    formatGr(results["#SecPeaksCT"], kBlue, 0, "OverVoltage [V]", "<N Secondary peaks>");
+    results["#SecPeaksCT"]->GetYaxis()->SetRangeUser(0,tot_max_peaks*2.);
+    formatGr(results["#SecPeaksDT"], kGreen+2, 0, "OverVoltage [V]", "<N Secondary peaks>");
+    results["#SecPeaksCT"]->Draw("ALP*");
     results["#SecPeaksDT"]->Draw("LP*");
 
     leg = new TLegend(0.15,0.65,0.47,0.87);
-    leg->AddEntry(results["#SecPeaks"],"After any noise","lp");
     leg->AddEntry(results["#SecPeaksCT"],"After Direct Cross-Talk","lp");
     leg->AddEntry(results["#SecPeaksDT"],"After any delayed noise","lp");
     leg->SetFillColor(kWhite);

@@ -1,18 +1,21 @@
 #ifndef THRESHOLDS_H
 #define THRESHOLDS_H
 
-struct Thresholds_t
+struct Thresholds
 {
     // In  nanoseconds
-    const double reject_time;
-    const double delxtalk_reject_time;
+    const double AP_minT;
+    const double del_xtalk_minT;
+    const double dir_xtalk_maxT;
     
     // In  % of pe
-    const double after_pulse; 
-    const double direct_xtalk;
-    const double xtalk;
+    const double AP;
+    const double dir_xtalk;
+    const double del_xtalk;
+
     const double time_dist;
 
-} Thresholds {4, 2, 0.5, 1.17, 0.85, 0.4};
+} default_thrs {4., 2., 2., 0.4, 1.17, 0.8, 0.4};
+//} default_thrs {4., 2., 2., 0.6, 0.6, 0.6, 0.4};
 
 #endif
