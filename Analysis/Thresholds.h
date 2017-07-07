@@ -15,7 +15,8 @@ struct Thresholds
 
     const double time_dist;
 
-} default_thrs {4., 2., 2., 0.4, 1.17, 0.8, 0.4};
-//} default_thrs {4., 2., 2., 0.6, 0.6, 0.6, 0.4};
+//} default_thrs {4., 2., 2., 0.4, 1.17, 0.8, 0.4};
+} default_thrs {4., 2., 2., 0.6, 1.2, 0.6, 0.4};
+//} default_thrs {20., 10., 10., 0.6, 1.2, 0.6, 0.4};
 
 #endif

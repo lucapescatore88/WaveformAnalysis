@@ -1,4 +1,5 @@
 import sys, struct
+# read binary files: https://github.com/yetifrisstlama/readTrc
 import readTrc
 import os, glob, argparse
 from ROOT import TFile, TTree, vector
@@ -12,6 +13,8 @@ opts = parser.parse_args()
 voltages = glob.glob(opts.folder+'/*')               # Input
 out = TFile("oscilloscope_out.root","recreate")      # Output
 
+timescale_factor = {"ps":1e-12, "ns":1e-9, "us": 1e-6, "ms":1e-3, "s":1, "ks":1e3}
+
 for volt in voltages :                               # Loop on folders
     
     print "Analysing", volt 
@@ -23,6 +26,11 @@ for volt in voltages :                               # Loop on folders
     nsamples = m['WAVE_ARRAY_COUNT']
     nsubsamples = m['NOM_SUBARRAY_COUNT']
     samplesPerEvent =  m['WAVE_ARRAY_COUNT'] / m['NOM_SUBARRAY_COUNT']
+    # gets timebase, format is '20_us/div' f.ex.
+    timebase_str = m['TIMEBASE']
+    time_per_div = float(timebase_str.split("_")[0])
+    timescale = timebase_str.split("_")[1].split("/")[0]
+    time_per_div = time_per_div*timescale_factor[timescale]
 
     print "N files: ", len(files)
     print "N samples per event", samplesPerEvent
@@ -61,7 +69,7 @@ for volt in voltages :                               # Loop on folders
                 
                 delta = datX[i] - shift
                 
-            if datX[i] - delta < -20e-9 : print "WRONG"
+            if datX[i] - delta < -1*time_per_div : print "WRONG"
             times[int(i%samplesPerEvent)] = datX[i] - delta
             ampls[int(i%samplesPerEvent)] = datY[i]
 
