@@ -87,8 +87,6 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
     TString canvas_title = "Amplitude calculation "+TString(vol_folder);
     TH1D * volt_ampl = new TH1D(canvas_title, canvas_title, 150, -0.05, 0.25);	// Adjust range of histogram, might change with amplifier used!
 
-    cout << " -----> Amplitude calculation of pe: " << vol_folder << endl;
-
     TFile * f = NULL;
     TTree * tree = NULL;
     int nsamples;
@@ -117,13 +115,15 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
             tree->GetEntry(j);
             waveform = new TGraph(nsamples,times,amps);
             
+            /*
             if(j < 4 && TString(vol_folder)=="54.0V")  
             {
                 TCanvas * c1 = new TCanvas(Form("WaveTest_%i.pdf",j));
                 waveform->Draw("AP");
                 c1->Write();
-                //c1->Print(Form("%i.pdf",j)); 
+                c1->Print(Form("%i.pdf",j)); 
             }
+            */
         }
         else 
         {
@@ -266,7 +266,7 @@ void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:ah?")
         switch(opt){
             case 'd':
                 globalArgs.data_folder = optarg;
-                std::cout << "-p option path= " << globalArgs.data_folder << std::endl;
+                //std::cout << "-p option path= " << globalArgs.data_folder << std::endl;
                 break;
             case 'S':
                 globalArgs.arg_pathToSetupFile = optarg;
