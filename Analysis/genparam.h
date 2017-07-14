@@ -3,7 +3,9 @@
 
 #include "TString.h"
 #include "TGraph.h"
+#include "TGraphErrors.h"
 #include "TH1.h"
+#include "TH2.h"
 #include <iostream>
 
 using namespace std;
@@ -65,6 +67,20 @@ TGraph * average(TGraph * gr, TGraph * gr2)
     return gr;
 }
 
-
+TGraphErrors * average2Dhist(TH2 * h) {
+	unsigned int Nx = h->GetNbinsX();
+	TGraphErrors * average = new TGraphErrors(Nx);
+	for(unsigned int binx(0); binx<Nx; ++binx) {
+		TH1 * projy = h->ProjectionY("projy",binx+1,binx+1);
+		average->SetPoint(binx, h->GetXaxis()->GetBinCenter(binx+1), projy->GetMean());
+		average->SetPointError(binx, 0.5*h->GetXaxis()->GetBinWidth(binx+1), projy->GetRMS());
+		delete projy;
+	}
+	average->SetMarkerStyle(8);
+	average->SetMarkerSize(0.5);
+	average->SetMarkerColor(8);
+	
+	return average;
+}
 
 #endif
