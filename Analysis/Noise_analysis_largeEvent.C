@@ -42,7 +42,9 @@ int main(int argc, char* argv[])
         {"#Total",       new TGraphErrors()},
         {"#SecPeaks",    new TGraphErrors()},
         {"#SecPeaksCT",  new TGraphErrors()},
-        {"#SecPeaksDT",  new TGraphErrors()} };
+        {"#SecPeaksDT",  new TGraphErrors()},
+        {"Charge",       new TGraphErrors()},
+        {"#Double",      new TGraphErrors()} };
 
     Char_t Category[15];
     Double_t V_meas;
@@ -80,7 +82,7 @@ int main(int argc, char* argv[])
 
     std::cout << " -----> Calculation of average DCR amplitudes " << std::endl;
     int i = 0;
-    for (auto vol : vol_folders) 
+    for (auto vol : vol_folders)
     {
         pe_volt.push_back(Amplitude_calc(vol, data_size, "root", hfile));
         Vbias->SetPoint(i, pe_volt.back(), vol.Atof()); i++;
@@ -105,7 +107,7 @@ int main(int argc, char* argv[])
     for (int i = 0; i < vol_size; i++)
     {    
         const char * vol = vol_folders[i];
-        cout << "\n\n   --> Voltage analyzed: " << vol << endl;
+        cout << "\n\n----> Voltage analyzed: " << vol << endl;
 
         map<string, int> color{{"clean",1},{"AP",1},{"CT",1},{"DCT",1}};
 
@@ -129,22 +131,23 @@ int main(int argc, char* argv[])
         V_meas = V - VBD;
          
         map<string,TCanvas *> canv {
-            {"CT",    new TCanvas(Form("Direct CrossTalk OV = %2.2f V",V_meas))},
-            {"DCT",   new TCanvas(Form("Delayed CrossTalk OV = %2.2f V",V_meas))},
-            {"AP",    new TCanvas(Form("After Pulse OV = %2.2f V",V_meas))},
-            {"clean", new TCanvas(Form("Clean OV = %2.2f V",V_meas))}
+            {"CT",     new TCanvas(Form("Direct CrossTalk OV = %2.2f V",V_meas))},
+            {"DCT",    new TCanvas(Form("Delayed CrossTalk OV = %2.2f V",V_meas))},
+            {"AP",     new TCanvas(Form("After Pulse OV = %2.2f V",V_meas))},
+            {"clean",  new TCanvas(Form("Clean OV = %2.2f V",V_meas))}
         };
         
         hfile->cd("Plots");
+        TMultiGraph * forfit    = new TMultiGraph();  
         TGraph * Expfit_AP      = new TGraph();
         TGraph * cleanforfit    = NULL;
-        TMultiGraph * forfit    = new TMultiGraph();        
-	    TH1D * AP_arrivaltime   = new TH1D(Form("AP_arrival_times_%s",vol),"AP arrival times", 140, 0, 0.2e-6);
-        TH1D * DeXT_arrivaltime = new TH1D(Form("Del_CT_arrival_times_%s",vol),"DeCT arrival times", 140, 0, 0.2e-6);
-        TH1D * Npeaks           = new TH1D(Form("N_peaks_%s",vol),"Number of noise peaks when not clean", 50, 0, 50);
-        TH1D * NpeaksCT         = new TH1D(Form("N_peaks_CT_%s",vol),"Number of noise peaks when direct CT", 50, 0, 50);
-        TH1D * NpeaksDT         = new TH1D(Form("N_peaks_Delayed_%s",vol),"Number of noise peaks when delayed noise", 50, 0, 50);
-        TH1D * Charge           = new TH1D(Form("Charge_%s",vol),"Charge of all peaks", 10, 0., 0.2);
+        map<string,TH1D*> graphs {
+	       {"AP_arrivaltime",   new TH1D(Form("AP_arrival_times_%s",vol),"AP arrival times", 140, 0, 0.2e-6)},
+           {"DeXT_arrivaltime", new TH1D(Form("Del_CT_arrival_times_%s",vol),"DeCT arrival times", 140, 0, 0.2e-6)},
+           {"Npeaks",           new TH1D(Form("N_peaks_%s",vol),"Number of noise peaks when not clean", 50, 0, 50)},
+           {"NpeaksCT",         new TH1D(Form("N_peaks_CT_%s",vol),"Number of noise peaks when direct CT", 50, 0, 50)},
+           {"NpeaksDT",         new TH1D(Form("N_peaks_Delayed_%s",vol),"Number of noise peaks when delayed noise", 50, 0, 50)},
+           {"Charge",           new TH1D(Form("Charge_%s",vol),"Charge of all peaks", 10, 0., 0.2)} };
 
         // Setup input tree
         TTree * tree = NULL;
@@ -214,8 +217,8 @@ int main(int argc, char* argv[])
                 else if (done) { done = false; continue; }
                 done = true;
 
-                if ( curV > AP_thr ) Charge->Fill(curV);
-                if ((curT > 2*ns) && (curV > 0.4*pe)) veryclean = false;
+                if ( curV > AP_thr ) graphs["Charge"]->Fill(curV);
+                if ( curT > 2*ns && curV > 0.4*pe) veryclean = false;
 
                 // Direct x-talk: in 0-2 ns window and V > direct th.
                 if( curT <= cthrs.dir_xtalk_maxT * ns && curV > CT_thr ) 
@@ -230,7 +233,7 @@ int main(int argc, char* argv[])
                 {
                     xtalk_pulse++;
                     noise_peaks_cnt++;
-                    DeXT_arrivaltime->Fill(curT);
+                    graphs["DeXT_arrivaltime"]->Fill(curT);
                     if(curV > CT_thr) all_double_CT_cnt++;
                 }
 
@@ -240,7 +243,7 @@ int main(int argc, char* argv[])
                     after_pulse++;
                     noise_peaks_cnt++;
                     Expfit_AP->SetPoint(Expfit_AP->GetN(),curT,curV);
-                    AP_arrivaltime->Fill(curT);
+                    graphs["AP_arrivaltime"]->Fill(curT);
                     if(curV > CT_thr) all_double_CT_cnt++;
                 }
 
@@ -258,8 +261,8 @@ int main(int argc, char* argv[])
                 TString graph_title = Form("Direct CrossTalk OV = %2.2f V",V_meas);
                 drawWave(waveform, &color["CT"], graph_title, canv["CT"], 1.5*pe);
                 
-                Npeaks->Fill(noise_peaks_cnt);
-                NpeaksCT->Fill(noise_peaks_cnt);
+                graphs["Npeaks"]->Fill(noise_peaks_cnt);
+                graphs["NpeaksCT"]->Fill(noise_peaks_cnt);
             }
             
             else if (xtalk_pulse > 0) // Delayed x-talk
@@ -272,8 +275,8 @@ int main(int argc, char* argv[])
                 TString graph_title = Form("Delayed cross-talk OV = %2.2f V",V_meas);
                 drawWave(waveform, &color["DCT"], graph_title, canv["DCT"], 1.5*pe);
 
-                Npeaks->Fill(noise_peaks_cnt);
-                NpeaksDT->Fill(noise_peaks_cnt-1);
+                graphs["Npeaks"]->Fill(noise_peaks_cnt);
+                graphs["NpeaksDT"]->Fill(noise_peaks_cnt-1);
             }
             
             else if (after_pulse > 0) //  Only after pulse
@@ -285,8 +288,8 @@ int main(int argc, char* argv[])
                 TString graph_title = Form("After pulse OV = %2.2f V",V_meas);
                 drawWave(waveform, &color["AP"], graph_title, canv["AP"], 1.5*pe);
 
-                Npeaks->Fill(noise_peaks_cnt);
-                NpeaksDT->Fill(noise_peaks_cnt-1);
+                graphs["Npeaks"]->Fill(noise_peaks_cnt);
+                graphs["NpeaksDT"]->Fill(noise_peaks_cnt-1);
             }
 	           
             else    // If not noisy then it's clean
@@ -294,14 +297,9 @@ int main(int argc, char* argv[])
                 sprintf(Category,"Clean");
 
                 // Get only very clean waves and make an average for long tau fit.
-                bool veryclean = true;
-                for (int row = 0; row < npts; row++) 
-                    if ((time[row] > 2*ns) && (volts[row] > 0.4*pe)) 
-                        veryclean = false;
-
                 if(veryclean) cleanforfit = average(cleanforfit, waveform);
 
-                if(nsaved < 100) // Max 20 clean graphs on the plot
+                if(nsaved < 5) // Max 20 clean graphs on the plot
                 {
                     forfit->Add(waveform);
                     nsaved++;
@@ -337,8 +335,8 @@ int main(int argc, char* argv[])
         cout << Form("Total probability of secondary peaks: %.2f%%",perc_Sec*100.) << endl;
         cout << Form("Percent of noise peaks over the total (P_all): %.2f%%",perc_noise_peaks*100.) << endl;
         cout << Form("Percent of double peaks: %.2f%%",perc_double*100.) << endl;
-        cout << Form("Mean peak charge: %.4f pe", Charge->GetMean()) << endl;
-        cout << Form("Mean event charge: %.4f pe", Charge->Integral() / events_cnt) << endl;
+        cout << Form("Mean peak charge: %.4f pe", graphs["Charge"]->GetMean()) << endl;
+        cout << Form("Mean event charge: %.4f pe", graphs["Charge"]->Integral() / events_cnt) << endl;
         
 
         // Fits for long tau and recovery time
@@ -362,25 +360,25 @@ int main(int argc, char* argv[])
         results["#AP"]->SetPointError(i,0.,TMath::Sqrt(perc_AP*(1.-perc_AP)/events_cnt)*100.);
         results["#DCT"]->SetPoint(i,V_meas,perc_DCT*100.);
         results["#DCT"]->SetPointError(i,0.,TMath::Sqrt(perc_DCT*(1.-perc_DCT)/events_cnt)*100.);
+        results["#Double"]->SetPoint(i,V_meas,perc_double*100.);
+        results["#Double"]->SetPointError(i,0.,TMath::Sqrt(perc_double*(1.-perc_double)/events_cnt)*100.);
+        results["Charge"]->SetPoint(i,V_meas,graphs["Charge"]->GetMean());
+        results["Charge"]->SetPointError(i,0.,graphs["Charge"]->GetMeanError());
 
         results["#Total"]->SetPoint(i,V_meas,perc_noise_peaks*100.);
         results["#Total"]->SetPointError(i,0.,TMath::Sqrt(perc_noise_peaks*(1.-perc_noise_peaks)/(tot_noise_peaks_cnt + events_cnt))*100.);
         results["#SecPeaks"]->SetPoint(i,V_meas,perc_Sec*100.);
         results["#SecPeaks"]->SetPointError(i,0.,TMath::Sqrt(perc_Sec*(1.-perc_Sec)/events_cnt)*100.);
-        results["#SecPeaksCT"]->SetPoint(i,V_meas,NpeaksCT->GetMean());
-        results["#SecPeaksCT"]->SetPointError(i,0.,NpeaksCT->GetMeanError());
-        results["#SecPeaksDT"]->SetPoint(i,V_meas,NpeaksDT->GetMean());
-        results["#SecPeaksDT"]->SetPointError(i,0.,NpeaksDT->GetMeanError());
+        results["#SecPeaksCT"]->SetPoint(i,V_meas,graphs["NpeaksCT"]->GetMean());
+        results["#SecPeaksCT"]->SetPointError(i,0.,graphs["NpeaksCT"]->GetMeanError());
+        results["#SecPeaksDT"]->SetPoint(i,V_meas,graphs["NpeaksDT"]->GetMean());
+        results["#SecPeaksDT"]->SetPointError(i,0.,graphs["NpeaksDT"]->GetMeanError());
         
         // Save/print reults:
         hfile->cd("Waves");
         for(auto const &e : canv) e.second->Write();
 	    hfile->cd("Plots");
-        AP_arrivaltime->Write();
- 	    DeXT_arrivaltime->Write();
-        Npeaks->Write();
-        NpeaksCT->Write();
-        NpeaksDT->Write();
+        for(auto const &e : graphs) e.second->Write();
         
         canv["CT"]->Print(globalArgs.res_folder+Form("Immcrosstalk_%s.pdf",vol));
         canv["DCT"]->Print(globalArgs.res_folder+Form("Delcrosstalk_%s.pdf",vol));
@@ -388,8 +386,12 @@ int main(int argc, char* argv[])
         if(globalArgs.save_all) 
         {
             TCanvas * tmpc = new TCanvas();
-            AP_arrivaltime->Draw();
-            tmpc->Print(globalArgs.res_folder+Form("AP_arrivetime_%s.pdf",vol));
+            for(auto const &e : graphs) 
+            {
+                e.second->Draw();
+                tmpc->Print(globalArgs.res_folder+Form((e.first+"_%s.pdf").c_str(),vol));
+            }
+            /*
             DeXT_arrivaltime->Draw();
             tmpc->Print(globalArgs.res_folder+Form("DeXT_arrivetime_%s.pdf",vol));
             Npeaks->Draw("HIST");
@@ -398,16 +400,13 @@ int main(int argc, char* argv[])
             tmpc->Print(globalArgs.res_folder+Form("Npeaks_whenCT_%s.pdf",vol));
             NpeaksDT->Draw("HIST");
             tmpc->Print(globalArgs.res_folder+Form("Npeaks_whenDelayedNoise_%s.pdf",vol));
+            */
             delete tmpc;
         }
 
-	    delete AP_arrivaltime;
-	    delete DeXT_arrivaltime;
-        delete Npeaks;
-        delete NpeaksCT;
-        delete NpeaksDT;
         delete Expfit_AP;
         delete cleanforfit;
+        for(auto const &e : graphs) delete e.second;
         for(auto const &e : canv) delete e.second;
     }
 
@@ -426,12 +425,14 @@ int main(int argc, char* argv[])
     formatGr(results["#AP"], kOrange+7, 3005, "OverVoltage [V]", "Noise [%]");
     formatGr(results["#DCT"], kGreen+2, 3005, "OverVoltage [V]", "Noise [%]");
     formatGr(results["#SecPeaks"], 7, 3005, "OverVoltage [V]", "Noise [%]");
+    formatGr(results["#Double"], 8, 3005, "OverVoltage [V]", "Noise [%]");
 
     results["#Total"]->Draw("ALP*3");
     results["#CT"]->Draw("LP*3");
     results["#AP"]->Draw("LP*3");
     results["#DCT"]->Draw("LP*3");
     results["#SecPeaks"]->Draw("LP*3");
+    results["#Double"]->Draw("LP*3");
     
     TLegend * leg = new TLegend(0.15,0.65,0.47,0.87);
     leg->AddEntry(results["#Total"],"Total","f");
@@ -439,6 +440,7 @@ int main(int argc, char* argv[])
     leg->AddEntry(results["#AP"],"After Pulse","f");
     leg->AddEntry(results["#DCT"],"Delayed Cross-Talk","f");
     leg->AddEntry(results["#SecPeaks"],"Secondary noise","f");
+    leg->AddEntry(results["#Double"],"Double hight peaks","f");
 
     leg->SetFillColor(kWhite);
     leg->Draw();
@@ -464,6 +466,11 @@ int main(int argc, char* argv[])
     cfinal->Print(globalArgs.res_folder+"SecondaryPeaks.pdf");
     cfinal->SetName("SecondaryPeaks");
     cfinal->Write();
+
+    results["Charge"]->Draw("AP");
+    cfinal->Print(globalArgs.res_folder+"Charge.pdf");
+    cfinal->SetName("Charge");
+    cfinal->Write();    
   
     return 0;
 }

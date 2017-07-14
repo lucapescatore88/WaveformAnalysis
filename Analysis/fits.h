@@ -39,14 +39,15 @@ TF1 * fitLongTau(TGraph * cleanwaves, double * amp0, double * tau, double pe, co
     TCanvas * ctmp = new TCanvas(Form("LongTauFit_%s",vol));
 
     // Fit parameters and limits to calculate slow component of the pulse
-    TF1 * exp_longtau = new TF1(Form("exptau_%s",vol),"[0]*exp(-(x-[1])/[2])",5*ns,100*ns);
-    exp_longtau->SetParameter(0, pe*0.2);
-    exp_longtau->SetParLimits(0, 0.01*pe,1.*pe);
+    TF1 * exp_longtau = new TF1(Form("exptau_%s",vol),"[0]*exp(-(x-[1])/[2])",20*ns,120*ns);
+    exp_longtau->SetParameter(0, pe*0.02);
+    exp_longtau->SetParLimits(0, 0.005*pe,0.2*pe);
     //exp_longtau->SetParameter(1, 2*ns);
+    //exp_longtau->SetParLimits(1, 0*ns,5*ns);
     exp_longtau->FixParameter(1, 0*ns);
-    //exp_longtau->SetParLimits(1, 0*ns,5*ns);    
-    exp_longtau->SetParameter(2, 100*ns);
-    exp_longtau->SetParLimits(2, 10*ns,300*ns);
+    exp_longtau->SetParameter(2, 50*ns);
+    exp_longtau->SetParLimits(2, 30*ns,70*ns);
+    //exp_longtau->SetLineColor(2);
         
     waveh->Fit(Form("exptau_%s",vol),"","",5*ns,140*ns); // Fit boundaries for the slow component of the pulse
     (*amp0) = exp_longtau->GetParameter(0);
@@ -73,19 +74,20 @@ TF1 * fitLongTau(TMultiGraph * cleanwaves, double * amp0, double * tau, double p
     TCanvas * ctmp = new TCanvas(Form("LongTauFit_%s",vol));
 
     avg->Draw("AP");
-    cleanwaves->Draw("P SAME");
+    //cleanwaves->Draw("P SAME");
 
     // Fit parameters and limits to calculate slow component of the pulse
-    TF1 * exp_longtau = new TF1(Form("exptau_%s",vol),"[0]*exp(-(x-[1])/[2])",5*ns,150*ns);
-    exp_longtau->SetParameter(0, pe*0.2);
-    exp_longtau->SetParLimits(0, 0.01*pe,1.*pe);
+    TF1 * exp_longtau = new TF1(Form("exptau_%s",vol),"[0]*exp(-(x-[1])/[2])",15*ns,120*ns);
+    exp_longtau->SetParameter(0, pe*0.02);
+    exp_longtau->SetParLimits(0, 0.005*pe,0.2*pe);
     //exp_longtau->SetParameter(1, 2*ns);
     //exp_longtau->SetParLimits(1, 0*ns,5*ns);
     exp_longtau->FixParameter(1, 0*ns);
-    exp_longtau->SetParameter(2, 100*ns);
-    exp_longtau->SetParLimits(2, 10*ns,300*ns);
+    exp_longtau->SetParameter(2, 50*ns);
+    exp_longtau->SetParLimits(2, 30*ns,70*ns);
+    //exp_longtau->SetLineColor(2);
         
-    cleanwaves->Fit(Form("exptau_%s",vol),"","",5*ns,150*ns); // Fit boundaries for the slow component of the pulse
+    cleanwaves->Fit(Form("exptau_%s",vol),"R","",50*ns,120*ns); // Fit boundaries for the slow component of the pulse
     (*amp0) = exp_longtau->GetParameter(0);
     (*tau) = exp_longtau->GetParameter(2);
     std::cout << "Long tau = " << *tau << std::endl;
@@ -94,10 +96,10 @@ TF1 * fitLongTau(TMultiGraph * cleanwaves, double * amp0, double * tau, double p
 
     c->cd();
 
-    TPaveText * pv = new TPaveText(0.2,0.65,0.35,0.74,"brNDC");
-    pv->AddText(Form("#tau_{long} = %2.2e ",*tau));
+    TPaveText * pv = new TPaveText(0.4,0.65,0.55,0.74,"brNDC");
+    pv->AddText(Form("#tau_{long} = %2.2e #pm %2.2e",*tau, exp_longtau->GetParError(2)));
     pv->SetFillColor(kWhite);
-    pv->Draw();
+    pv->Draw("SAME");
     exp_longtau->Draw("SAME");
 
     c->Print(globalArgs.res_folder+Form("Clean_%s.pdf",vol));
@@ -127,14 +129,13 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
 
     APtime->Fit(Form("exp_%s",vol),"","",30*ns,100*ns);
     exp->Draw("same");
-    //ctmp->Print(Form("APFit_%s.pdf",vol));
     ctmp->Write();
     delete ctmp;
     
     c->cd();
     
-    TPaveText * pv = new TPaveText(0.2,0.65,0.35,0.74,"brNDC");
-    pv->AddText(Form("Recovery time = %2.2e ",exp->GetParameter(1)));
+    TPaveText * pv = new TPaveText(0.4,0.65,0.55,0.74,"brNDC");
+    pv->AddText(Form("Recovery time = %2.2e #pm %2.2e",exp->GetParameter(1), exp->GetParError(1)));
     pv->SetFillColor(kWhite);
     pv->Draw();
     exp->Draw("SAME");
