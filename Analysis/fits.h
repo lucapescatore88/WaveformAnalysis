@@ -44,15 +44,51 @@ TF1 * fitLongTau(TGraph * cleanwaves, double * amp0, double * tau, double pe, co
     c->cd();
 
     // Fit parameters and limits to calculate slow component of the pulse
-    TF1 * exp_longtau = new TF1(Form("fit_longtau_%s",vol),"[0]*exp(-x/[1])",0.,180.*ns);	// must adapt range automatically
-    exp_longtau->SetParameter(0,pe*0.2);
-    exp_longtau->SetParLimits(0,0.01*pe,1.*pe);
-    exp_longtau->SetParameter(1,  80*ns);
-    exp_longtau->SetParLimits(1,10*ns,200*ns); 
+    TF1 * exp_longtau = new TF1(Form("fit_longtau_%s",vol),"[0]*exp(-(x-[1])/[2])",5*ns,150*ns);	// must adapt range automatically
+    exp_longtau->SetParameter(0, pe*0.2);
+    exp_longtau->SetParLimits(0, 0.01*pe,1.*pe);
+    //exp_longtau->SetParameter(1, 2*ns);
+    //exp_longtau->SetParLimits(1, 0*ns,5*ns);
+    exp_longtau->FixParameter(1, 0*ns);
+    exp_longtau->SetParameter(2, 100*ns);
+    exp_longtau->SetParLimits(2, 10*ns,300*ns);
         
     waveh->Fit(Form("fit_longtau_%s",vol),"","",4*ns,180.*ns); // Fit boundaries for the slow component of the pulse
+    
     (*amp0) = exp_longtau->GetParameter(0);
-    (*tau) = exp_longtau->GetParameter(1);
+    (*tau) = exp_longtau->GetParameter(2);
+    std::cout << "Long tau = " << *tau << std::endl;
+
+    TPaveText * pv = new TPaveText(0.2,0.65,0.35,0.74,"brNDC");
+    pv->AddText(Form("#tau_{long} = %2.2e ",*tau));
+    pv->SetFillColor(kWhite);
+    pv->Draw();
+    exp_longtau->Draw("SAME");
+
+    return exp_longtau;
+}
+
+TF1 * fitLongTau(TMultiGraph * cleanwaves, double * amp0, double * tau, double pe, const char * vol, TCanvas * c, TGraph * avg) 
+{
+    //TCanvas * ctmp = new TCanvas(Form("LongTauFit_%s",vol));
+    c->cd();
+
+    avg->Draw("AP");
+    cleanwaves->Draw("P+");
+
+    // Fit parameters and limits to calculate slow component of the pulse
+    TF1 * exp_longtau = new TF1(Form("fit_longtau_%s",vol),"[0]*exp(-(x-[1])/[2])",5*ns,150*ns);
+    exp_longtau->SetParameter(0, pe*0.2);
+    exp_longtau->SetParLimits(0, 0.01*pe,1.*pe);
+    //exp_longtau->SetParameter(1, 2*ns);
+    //exp_longtau->SetParLimits(1, 0*ns,5*ns);
+    exp_longtau->FixParameter(1, 0*ns);
+    exp_longtau->SetParameter(2, 100*ns);
+    exp_longtau->SetParLimits(2, 10*ns,300*ns);
+        
+    cleanwaves->Fit(Form("fit_longtau_%s",vol),"","",5*ns,150*ns); // Fit boundaries for the slow component of the pulse
+    (*amp0) = exp_longtau->GetParameter(0);
+    (*tau) = exp_longtau->GetParameter(2);
     std::cout << "Long tau = " << *tau << std::endl;
 
     TPaveText * pv = new TPaveText(0.6,0.65,0.75,0.74,"brNDC");
@@ -64,21 +100,52 @@ TF1 * fitLongTau(TGraph * cleanwaves, double * amp0, double * tau, double pe, co
     return exp_longtau;
 }
 
+// second version for fitting the persistence 2D histogram
+TF1 * fitLongTau2(TH2 * h, double * amp0, double * tau, double pe, const char * vol) 
+{
+	TGraphErrors * averageGraph = average2Dhist(h);
+    averageGraph->SetName(Form("average_clean_%s",vol));
+    //averageGraph->Draw("p same");
+    
+    // Fit parameters and limits to calculate slow component of the pulse
+    TF1 * exp_longtau = new TF1(Form("fit2_longtau_%s",vol),"[0]*exp(-x/[1])",0.,180.*ns);	// must adapt range automatically
+    exp_longtau->SetParameter(0,pe*0.2);
+    exp_longtau->SetParLimits(0,0.01*pe,1.*pe);
+    exp_longtau->SetParameter(1,  80*ns);
+    exp_longtau->SetParLimits(1,10*ns,200*ns); 
+        
+    averageGraph->Fit(Form("fit2_longtau_%s",vol),"","",4*ns,180.*ns); // Fit boundaries for the slow component of the pulse
+    (*amp0) = exp_longtau->GetParameter(0);
+    (*tau) = exp_longtau->GetParameter(1);
+    std::cout << "Long tau (from 2D histogram) = " << *tau << std::endl;
+
+    return exp_longtau;
+}
+
+
 TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char * vol, TCanvas * c, TFile * f=NULL) 
 {
     // Fit parameters and limits to calculate AP recharge
 
     c->cd();
     APtime->Draw("AP*");
-    TF1 * exp = new TF1(Form("fit_AP_amp_%s",vol),"(([0])/(exp(-4E-9/[1])))*(exp(-4E-9/[1])-exp(-x/[1]))+[2]*exp(-x/[3])",4*ns,180 * ns);
-    exp->SetParameter(0,pe);
+    TF1 * exp = new TF1(Form("exp_%s",vol),"[0]*(1 - exp(-(x-[5])/[1])) + [2]*exp(-(x-[4])/[3])",4*ns,180 * ns);
+    //exp->SetParameter(0,pe);
+    
     //exp->SetParLimits(0,0.2*pe,10*pe);    
     exp->FixParameter(0,pe);  
-    exp->SetParameter(1,30*ns); // 30
-    exp->SetParLimits(1,10*ns,500*ns); // 4 500
+    exp->SetParameter(1,50*ns);
+    exp->SetParLimits(1,5*ns,100*ns);
     exp->FixParameter(2,amp0);
+    //exp->SetParLimits(2,0.,1.);
     exp->FixParameter(3,tau);
-    APtime->Fit(Form("fit_AP_amp_%s",vol));
+    exp->FixParameter(4,0*ns);	// found to be zero so we fix it
+    exp->FixParameter(5,0*ns);	// found to be zero so we fix it
+    //exp->SetParameter(5,8*ns);
+    //exp->SetParLimits(5,0*ns,15*ns);
+
+    APtime->Fit(Form("exp_%s",vol),"","",30*ns,100*ns);
+    
     exp->Draw("same");
     
     TPaveText * pv = new TPaveText(0.6,0.65,0.75,0.74,"brNDC");

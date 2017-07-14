@@ -19,7 +19,7 @@ struct globalArgs_t
     TString res_folder;                     /* -o option */
     bool save_all;                          /* -a  */
     TString input;                          /* -I root  */
-    double fixed_thr;                      /* -T root  */             
+    double fixed_thr;                       /* -T root  */             
 
 } globalArgs {" "," "," ",false,"root",-1};
 

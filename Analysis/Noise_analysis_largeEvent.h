@@ -120,28 +120,7 @@ TCanvas * drawPersistence(TH2D * persistence, TCanvas * c, TString title = "")
     return c;
 }
 
-// second version for fitting the persistence 2D histogram
-TF1 * fitLongTau2(TH2 * h, double * amp0, double * tau, double pe, const char * vol) 
-{
-	TGraphErrors * averageGraph = average2Dhist(h);
-    averageGraph->SetName(Form("average_clean_%s",vol));
-    //averageGraph->Draw("p same");
-    
-    // Fit parameters and limits to calculate slow component of the pulse
-    TF1 * exp_longtau = new TF1(Form("fit2_longtau_%s",vol),"[0]*exp(-x/[1])",0.,180.*ns);	// must adapt range automatically
-    exp_longtau->SetParameter(0,pe*0.2);
-    exp_longtau->SetParLimits(0,0.01*pe,1.*pe);
-    exp_longtau->SetParameter(1,  80*ns);
-    exp_longtau->SetParLimits(1,10*ns,200*ns); 
-        
-    averageGraph->Fit(Form("fit2_longtau_%s",vol),"","",4*ns,180.*ns); // Fit boundaries for the slow component of the pulse
-    (*amp0) = exp_longtau->GetParameter(0);
-    (*tau) = exp_longtau->GetParameter(1);
-    std::cout << "Long tau (from 2D histogram) = " << *tau << std::endl;
-
-    return exp_longtau;
-}
-
+TF1 * fitLongTau2(TH2 * h, double * amp0, double * tau, double pe, const char * vol);
 TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * amp0, double * tau, double pe, const char * vol, TString title = "")
 {
     c->cd();
@@ -150,25 +129,54 @@ TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * am
     persistence->GetXaxis()->SetTitle("Time [s]");
     TF1 * exp_longtau = 0;
     if(persistence->GetEntries()) {
-	    persistence->Draw("CONT4Z");
+		// have to do some tricks with TPads otherwise it does not work with draw option "CONT4Z"...
+		//~ TPad *pad1 = new TPad("pad1","",0,0,1,1);
+		//~ TPad *pad2 = new TPad("pad2","",0,0,1,1);
+		//~ pad2->SetFillStyle(0); //will be transparent
+		//~ pad2->SetFillColor(0);
+		//~ pad2->SetFrameFillStyle(0);
+		//~ pad1->Draw();
+		//~ pad1->cd();
+	    //~ persistence->Draw("CONT4Z");
+	    persistence->Draw("COLZ");
 	    c->SetLogz();
 	    gPad->Update();
 	    //persistence->GetListOfFunctions()->Print();
 	    TPaletteAxis *palette = (TPaletteAxis*)persistence->GetListOfFunctions()->FindObject("palette");
 		palette->SetX1NDC(0.91);
 		palette->SetX2NDC(0.93);
-		palette->SetY1NDC(0.23);
+		palette->SetY1NDC(0.25);
 		palette->SetY2NDC(0.9);
 		gPad->Modified();
 		gPad->Update();
+	    //~ pad1->SetLogz();
+	    //~ pad1->Update();
+	    //~ //persistence->GetListOfFunctions()->Print();
+	    //~ TPaletteAxis *palette = (TPaletteAxis*)persistence->GetListOfFunctions()->FindObject("palette");
+		//~ palette->SetX1NDC(0.91);
+		//~ palette->SetX2NDC(0.93);
+		//~ palette->SetY1NDC(0.25);
+		//~ palette->SetY2NDC(0.9);
+		//~ pad1->Modified();
+		//~ pad1->Update();
 		
-		//~ exp_longtau = fitLongTau2(persistence, amp0, tau, pe, vol);
-		exp_longtau = new TF1("salut","0.01",0.,180.*ns);
-		exp_longtau->Draw("SAME");
+		//~ double ymin = 0;
+		//~ double ymax = 0.03;
+		//~ double dy = (ymax-ymin)/0.8; //10 per cent margins top and bottom
+		//~ double xmin = 0;
+		//~ double xmax = 0.18e-6;
+		//~ double dx = (xmax-xmin)/0.8; //10 per cent margins left and right
+		//~ pad2->Range(xmin-0.1*dx,ymin-0.1*dy,xmax+0.1*dx,ymax+0.1*dy);
+		//~ pad2->Draw();
+		//~ pad2->cd();
+		exp_longtau = fitLongTau2(persistence, amp0, tau, pe, vol);
+		exp_longtau->Draw("SAME A*");
 	    TPaveText * pv = new TPaveText(0.6,0.65,0.75,0.74,"brNDC");
 	    pv->AddText(Form("#tau_{long} = %2.1fns",1e9*(*tau)));
 	    pv->SetFillColor(kWhite);
 	    pv->Draw();
+	    gPad->Update();
+	    //~ pad2->Update();
 		
 	}
     return exp_longtau;
@@ -217,14 +225,6 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
         {
             tree->GetEntry(j);
             waveform = new TGraph(nsamples,times,amps);
-            
-            if(j < 4 && TString(vol_folder)=="66.0V")  
-            {
-                TCanvas * c1 = new TCanvas(Form("WaveTest_%i.pdf",j));
-                waveform->Draw("AP");
-                c1->Write();
-                //c1->Print(Form("%i.pdf",j)); 
-            }
         }
         else 
         {
@@ -368,7 +368,7 @@ void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:ah?")
         switch(opt){
             case 'd':
                 globalArgs.data_folder = optarg;
-                std::cout << "-p option path= " << globalArgs.data_folder << std::endl;
+                //std::cout << "-p option path= " << globalArgs.data_folder << std::endl;
                 break;
             case 'S':
                 globalArgs.arg_pathToSetupFile = optarg;

@@ -52,7 +52,7 @@ int main(int argc, char* argv[])
     
     TTree * otree = new TTree("ClassifiedData","ClassifiedData");
     int npts, noise_peaks_cnt;
-    int xtalk_pulse, after_pulse;
+    int direct_xtalk_pulse, xtalk_pulse, after_pulse;
     double times[10000], amps[10000];
     double Vbias, pe, DiXT_thr, DeXT_thr, AP_thr;
 
@@ -69,26 +69,29 @@ int main(int argc, char* argv[])
     otree->Branch("DiXT_thr",&DiXT_thr,"DiXT_thr/D");
     otree->Branch("DeXT_thr",&DeXT_thr,"DeXT_thr/D");
     otree->Branch("AP_thr",&AP_thr,"AP_thr/D");
-
+    //~ hfile->mkdir("Plots");
+    //~ hfile->mkdir("Waves");
+    //~ hfile->mkdir("Fits");
 
     /////////////////
     // Calculate Voltage breakdown and value of pe
     /////////////////
     
     vector <Double_t> pe_volt;
-    TGraph * Vbias_ver = new TGraph();
+    TGraph * Vbias_vs_pe = new TGraph();
 
+    std::cout << " -----> Calculation of average DCR amplitudes " << std::endl;
     int i = 0;
     for (auto vol : vol_folders) 
     {
         pe_volt.push_back(Amplitude_calc(vol, data_size, "root", hfile));
-        Vbias_ver->SetPoint(i, pe_volt.back(), vol.Atof()); i++;
-        std::cout << Form("(Voltge,Mean amplitude) = (%f,%f)", vol.Atof(), pe_volt.back()) << "\n" << std::endl;
+        Vbias_vs_pe->SetPoint(i, pe_volt.back(), vol.Atof()); i++;
+        std::cout << Form("Voltage: %.1fV --> Mean amplitude = %.4f", vol.Atof(), pe_volt.back()) << std::endl;
     }
 
     cout << "\n\n-----> Voltage Breakdown fit" << endl;
 
-    double VBD = fitBreakdownVoltage(Vbias_ver, hfile);
+    double VBD = fitBreakdownVoltage(Vbias_vs_pe, hfile);
 
 
     /////////////////
@@ -100,11 +103,11 @@ int main(int argc, char* argv[])
     TGraph * waveform = NULL;
     hfile->cd();
 
-    //for (int i = vol_size-1; i < vol_size; i++) // Test on hihest and more noisy voltage
+    //for (int i = vol_size-1; i < vol_size; i++) // Test on highest and more noisy voltage
     for (int i = 0; i < vol_size; i++)
     {    
         const char * vol = vol_folders[i];
-        cout << "\n\n-----> Voltage analyzed: " << vol << endl;
+        cout << "\n\n   --> Voltage analyzed: " << vol << endl;
 
         map<string, int> color{{"clean",1},{"AP",1},{"DiXT",1},{"DeXT",1}};
 
@@ -112,10 +115,12 @@ int main(int argc, char* argv[])
 
         unsigned int events_cnt = 0;
         unsigned int tot_noise_peaks_cnt = 0;
+        unsigned int tot_double_cnt = 0;
         unsigned int counter_notclean = 0;
         unsigned int direct_xtalk_pulse_cnt = 0;
         unsigned int xtalk_pulse_cnt = 0;
         unsigned int after_pulse_cnt = 0;
+        unsigned int all_double_DiXT_cnt = 0;
         unsigned int nsaved(0), nsaved_DiXT(0), nsaved_DeXT(0), nsaved_AP(0);	// counters on the number of waveforms in each canvas
         unsigned int maxNwaveforms = 100; // maximum number of waveforms in the canvas
         
@@ -143,16 +148,19 @@ int main(int argc, char* argv[])
         
         TGraph * Expfit_AP      = new TGraph();
         TGraph * cleanforfit    = NULL;
-	    TH1D * AP_arrivaltime   = new TH1D("AP_arrival_time","AP arrival times", 140, 0, 0.2e-6);
-        TH1D * DeXT_arrivaltime = new TH1D("DeXT_arrival_time","DeXT arrival times", 140, 0, 0.2e-6);
-        TH1D * Npeaks           = new TH1D("Npeaks_not_clean","Number of noise peaks when not clean", 50, 0, 50);
-        TH1D * NpeaksDiXT       = new TH1D("Npeaks_when_DiXT","Number of noise peaks when DiXT", 50, 0, 50);
-        TH1D * NpeaksDeXT         = new TH1D("Npeaks_when_DeXT","Number of noise peaks when DeXT", 50, 0, 50);
+        
+	    TH1D * AP_arrivaltime   = new TH1D(Form("AP_arrival_time_%s",vol),"AP arrival time distribution", 140, 0, 0.2e-6);
+        TH1D * DeXT_arrivaltime = new TH1D(Form("DeXT_arrival_time_%s",vol),"DeXT arrival time distribution", 140, 0, 0.2e-6);
+        TH1D * Npeaks           = new TH1D(Form("Npeaks_not_clean_%s",vol),"Number of noise peaks when not clean", 50, 0, 50);
+        TH1D * NpeaksDiXT       = new TH1D(Form("Npeaks_when_DiXT_%s",vol),"Number of noise peaks when DiXT", 50, 0, 50);
+        TH1D * NpeaksDeXT       = new TH1D(Form("Npeaks_when_DeXT_%s",vol),"Number of noise peaks when DeXT", 50, 0, 50);
+        TMultiGraph * forfit    = new TMultiGraph();        
+        TH1D * Charge           = new TH1D(Form("Charge_%s",vol),"Charge of all peaks", 10, 0., 0.2);
         
         double bin_size = 0.002;	// vertical bin size for persistence plot
         TH2D * persistence_clean = NULL;
-        TH2D * persistence_DiXT    = NULL;
-        TH2D * persistence_DeXT   = NULL;
+        TH2D * persistence_DiXT  = NULL;
+        TH2D * persistence_DeXT  = NULL;
         TH2D * persistence_AP    = NULL;
 
         // Setup input tree
@@ -190,12 +198,12 @@ int main(int argc, char* argv[])
                 tree->GetEntry(j);
                 waveform = new TGraph(npts,times,amps);
             }
-            //else  // Read from csv file
-            //{
-            //   TString datafilename = Form("%s%s/%i.csv",globalArgs.data_folder,vol,j);
-            //    waveform = new TGraph(datafilename,"%lg %lg","/t;,");
-            //}
-            //if (waveform->IsZombie()) continue;
+            else  // Read from csv file
+            {
+                TString datafilename = Form("%s%s/%i.csv",globalArgs.data_folder,vol,j);
+                waveform = new TGraph(datafilename,"%lg %lg","/t;,");
+            }
+            if (waveform->IsZombie()) continue;
 
             waveform->SetName(Form("%s_%i",vol,j));
     
@@ -209,7 +217,8 @@ int main(int argc, char* argv[])
             noise_peaks_cnt = 0;
             after_pulse = 0;
             xtalk_pulse = 0;
-            unsigned int direct_xtalk_pulse = 0;
+            all_double_DiXT_cnt = 0;
+            direct_xtalk_pulse = 0;
             
             DiXT_thr = cthrs.dir_xtalk * pe;
             DeXT_thr = cthrs.del_xtalk * pe;
@@ -222,7 +231,7 @@ int main(int argc, char* argv[])
             }
 
             bool done = false;
-            //cout << "New Evt " << j+1<< endl;
+            bool veryclean = true;
             for (int row = 2; row < npts-2; row++) 
             {
                 double curT = time[row];
@@ -233,11 +242,16 @@ int main(int argc, char* argv[])
                 else if (done) { done = false; continue; }
                 done = true;
 
+                if ( curV > AP_thr ) Charge->Fill(curV);
+                if ((curT > 2*ns) && (curV > 0.4*pe)) veryclean = false;
+
                 // Direct x-talk: in 0-2 ns window and V > direct th.
                 if( curT <= cthrs.dir_xtalk_maxT * ns && curV > DiXT_thr ) 
                 {
                     direct_xtalk_pulse++;
-                    //if (direct_xtalk_pulse > 1) cout << "DiXT   "  << curT << "  PE  " << curV << endl;
+                    
+                    all_double_DiXT_cnt++;	// it seems it does not count double DiXT, but simply all DiXT, no?
+                    
                     //noise_peaks_cnt++; // Don't count peak as it is over the DCR?
                 }
 
@@ -247,6 +261,7 @@ int main(int argc, char* argv[])
                     xtalk_pulse++;
                     noise_peaks_cnt++;
                     DeXT_arrivaltime->Fill(curT);
+                    if(curV > DiXT_thr) all_double_DiXT_cnt++;
                 }
 
                 // After-pulse: time larger 2ns and V > AP th
@@ -255,7 +270,8 @@ int main(int argc, char* argv[])
                     after_pulse++;
                     noise_peaks_cnt++;
                     Expfit_AP->SetPoint(Expfit_AP->GetN(),curT,curV);
-                    AP_arrivaltime->Fill(curT); 
+                    AP_arrivaltime->Fill(curT);
+                    if(curV > DiXT_thr) all_double_DiXT_cnt++;
                 }
 
             } // loop over time
@@ -322,13 +338,14 @@ int main(int argc, char* argv[])
                 // Get only very clean waves and make an average for long tau fit.
                 bool veryclean = true;
                 for (int row = 0; row < npts; row++) 
-                    if ((time[row] > 2) && (volts[row] > 0.5*pe)) 
+                    if ((time[row] > 2*ns) && (volts[row] > 0.4*pe)) 
                         veryclean = false;
 
-                if(veryclean) cleanforfit = average(cleanforfit, waveform);
+                if(veryclean) cleanforfit = average(cleanforfit, waveform);	// actually this is wrong !
 
-                if(nsaved < 20) // Max 20 clean graphs on the plot
+                if(nsaved < maxNwaveforms) // Max 20 clean graphs on the plot
                 {
+                    forfit->Add(waveform);
                     nsaved++;
                     drawWave(waveform, &color["clean"], Form("Clean pulse #DeltaV = %2.2f V",dV), canv["clean"], 1.5*pe);                  
                 }
@@ -336,42 +353,51 @@ int main(int argc, char* argv[])
 	        }
 
             tot_noise_peaks_cnt += noise_peaks_cnt;
+            tot_double_cnt += all_double_DiXT_cnt;
 
-            otree->Fill();
+            if(globalArgs.save_all) otree->Fill();
             
             delete time;
             delete volts;
         }
-       
-        double perc_noise_peaks = tot_noise_peaks_cnt / (float)(tot_noise_peaks_cnt + events_cnt);
+        
+        double tot_npeaks = tot_noise_peaks_cnt + events_cnt;
+        double perc_noise_peaks = tot_noise_peaks_cnt / (float)tot_npeaks;
         double perc_DiXT  = direct_xtalk_pulse_cnt / (float)events_cnt;
         double perc_DeXT = xtalk_pulse_cnt / (float)events_cnt;
         double perc_AP  = after_pulse_cnt / (float)events_cnt;
-        //double perc_tot = perc_DiXT + perc_DeXT + perc_AP;
-        double perc_Sec = (tot_noise_peaks_cnt - after_pulse_cnt - xtalk_pulse_cnt) / (float)(tot_noise_peaks_cnt + events_cnt);
+        double perc_double = tot_double_cnt / (float)tot_npeaks;
+        double perc_Sec = (tot_noise_peaks_cnt - after_pulse_cnt - xtalk_pulse_cnt) / (float)tot_npeaks;
 
-        cout << "----- Total number of events: " << events_cnt << endl;
-        cout << Form("----- Not clean events: %i [%.2f%%]",counter_notclean, (float)(counter_notclean/events_cnt*100)) << endl;
+        cout << "\nTotal number of events: " << events_cnt << endl;
+        cout << "PE: " << pe << "\n" << endl;
+
+        cout << Form("Not clean events: %i [%.2f%%]",counter_notclean, (float)counter_notclean/events_cnt*100) << endl;
         cout << Form("     (DirXtalk = %i [%.2f%%], DelXtalk = %i [%.2f%%], AP = %i [%.2f%%])",
             (int)direct_xtalk_pulse_cnt, perc_DiXT*100.,
             (int)xtalk_pulse_cnt, perc_DeXT*100,
             (int)after_pulse_cnt, perc_AP*100 ) << endl;
-        cout << "     Total probability of secondary peaks: " << Form("%.2f%%",perc_Sec*100.) << endl;
-        cout << "     Percent of noise peaks over the total (P_all): " << Form("%.2f%%",perc_noise_peaks*100.) << endl;
+        cout << Form("Total probability of secondary peaks: %.2f%%",perc_Sec*100.) << endl;
+        cout << Form("Percent of noise peaks over the total (P_all): %.2f%%",perc_noise_peaks*100.) << endl;
+        cout << Form("Percent of double peaks: %.2f%%",perc_double*100.) << endl;
+        cout << Form("Mean peak charge: %.4f pe", Charge->GetMean()) << endl;
+        cout << Form("Mean event charge: %.4f pe", Charge->Integral() / events_cnt) << endl;
+        
 
-        cout << "\n-----> PE: " << pe << endl;
-        cout << "-----> Long tau fit ***" << endl;
+        // Fits for long tau and recovery time
+
+        cout << "\n\n-----> Long tau fit ***" << endl;
         double amp0, tau;
-        TF1 * exp_longtau = fitLongTau(cleanforfit, &amp0, &tau, pe, vol, canv["clean"]);
-   
+        //TF1 * exp_longtau = fitLongTau(cleanforfit, &amp0, &tau, pe, vol, canv["clean"]);
+        TF1 * exp_longtau = fitLongTau(forfit, &amp0, &tau, pe, vol, canv["clean"],cleanforfit);	// does not work properly
+        
         cout << "\n\n-----> After pulse fit ***" << endl;
         TF1 * exp_AP = fitAPTau(Expfit_AP, amp0, tau, pe, vol, canv["AP"]);
-
-        // Final result: Correlated noise
-
+        
         results["#DiXT"]->SetPoint(i,dV,perc_DiXT*100.);
         results["#DiXT"]->SetPointError(i,0.,TMath::Sqrt(perc_DiXT*(1.-perc_DiXT)/events_cnt)*100.);
         results["#AP"]->SetPoint(i,dV,perc_AP*100.);
+        
         results["#AP"]->SetPointError(i,0.,TMath::Sqrt(perc_AP*(1.-perc_AP)/events_cnt)*100.);
         results["#DeXT"]->SetPoint(i,dV,perc_DeXT*100.);
         results["#DeXT"]->SetPointError(i,0.,TMath::Sqrt(perc_DeXT*(1.-perc_DeXT)/events_cnt)*100.);
@@ -439,8 +465,9 @@ int main(int argc, char* argv[])
     }
 
     // Save TTree with hist of noise for each event OV and the noise classification
+    hfile->cd();
     otree->Write();
-    
+
     // Create final plot of total correlated noise
     TCanvas * cfinal = new TCanvas("Correlated Noise","Correlated Noise",100,100,900,700);
     
@@ -490,7 +517,8 @@ int main(int argc, char* argv[])
     cfinal->Print(globalArgs.res_folder+"SecondaryPeaks.pdf");
     cfinal->SetName("SecondaryPeaks");
     cfinal->Write();
-  
+    
+    hfile->Close();
     return 0;
 }
 
