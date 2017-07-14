@@ -82,13 +82,13 @@
   // If you want the usual gradient palette (blue -> red)
   lhcbStyle->SetPalette(1);
   // If you want colors that correspond to gray scale in black and white:
-  int colors[8] = {0,5,7,3,6,2,4,1};
-  lhcbStyle->SetPalette(8,colors);
+  //int colors[8] = {0,5,7,3,6,2,4,1};
+  //lhcbStyle->SetPalette(8,colors);
  
   // set the paper & margin sizes
   lhcbStyle->SetPaperSize(20,26);
-  lhcbStyle->SetPadTopMargin(0.05);
-  lhcbStyle->SetPadRightMargin(0.05); // increase for colz plots
+  lhcbStyle->SetPadTopMargin(0.1);
+  lhcbStyle->SetPadRightMargin(0.1); // adjusted for TH2 colz
   lhcbStyle->SetPadBottomMargin(0.16);
   lhcbStyle->SetPadLeftMargin(0.14);
  
