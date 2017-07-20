@@ -190,5 +190,8 @@
  // cout << "-------------------------" << endl;  
  // cout << "Set LHCb Style - Feb 2012" << endl;
  // cout << "-------------------------" << endl;  
+  
+  // RooFit printing mode:
+  RooMsgService::instance().setGlobalKillBelow(RooFit::ERROR)
  
 }

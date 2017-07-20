@@ -6,7 +6,9 @@
 #include "TGraphErrors.h"
 #include "TH1.h"
 #include "TH2.h"
+#include "TTree.h"
 #include <iostream>
+#include <string>
 
 using namespace std;
 
@@ -22,6 +24,28 @@ struct globalArgs_t
     double fixed_thr;                       /* -T root  */             
 
 } globalArgs {" "," "," ",false,"root",-1};
+
+struct delayedPulse
+{
+	double time;
+	double volt;
+	string type;	// can be "DeXT" or "AP"
+	bool operator<(const delayedPulse& a) const
+    {
+        return time < a.time;
+    }
+};
+
+struct timeFitResult {
+	double tau;
+	double tau_error;
+	double Nsig;
+	double Nsig_error;
+	double Nbkg;
+	double Nbkg_error;
+	double chi2;
+	//TString name;
+};
 
 TH1 * convertGrToH(TGraph * gr)
 {
