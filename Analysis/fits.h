@@ -153,7 +153,7 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
 {
     // Fit parameters and limits to calculate AP recharge
 
-    c->cd();
+    TCanvas * cAPfit = new TCanvas();
     APtime->Draw("AP*");
     TF1 * exp = new TF1(Form("exp_%s",vol),"[0]*(1 - exp(-(x-[5])/[1])) + [2]*exp(-(x-[4])/[3])",4*ns,180 * ns);
     //exp->SetParameter(0,pe);
@@ -168,8 +168,10 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
     exp->FixParameter(5,0*ns);	// found to be zero so we fix it
 
     APtime->Fit(Form("exp_%s",vol),"","",30*ns,100*ns);
-    exp->Draw("same");
-    
+    //exp->Draw("same");
+    //cAPfit->Write(TString("Fit")+APtime->GetName());
+
+    c->cd();
     TPaveText * pv = new TPaveText(0.6,0.65,0.75,0.74,"brNDC");
     pv->AddText(Form("Recovery time = %2.1fns",1e9*exp->GetParameter(1)));
     pv->SetFillColor(kWhite);
