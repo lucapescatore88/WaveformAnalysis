@@ -122,6 +122,7 @@ int main(int argc, char* argv[])
         unsigned int xtalk_pulse_cnt = 0;
         unsigned int after_pulse_cnt = 0;
         unsigned int secondary_pulse_cnt = 0;
+        unsigned int delayed_pulse_when_primary(0), delayed_pulse_when_secondary(0);
         unsigned int nsaved(0), nsaved_DiXT(0), nsaved_DeXT(0), nsaved_AP(0);	// counters on the number of waveforms in each canvas
         unsigned int maxNwaveforms = 100; // maximum number of waveforms in the canvas
         vector<delayedPulse> delayedPulses;	// used for DeXT and AP
@@ -350,6 +351,7 @@ int main(int argc, char* argv[])
 	            else if (xtalk_pulse > 0) // Only Delayed x-talk
 	            {
 	                xtalk_pulse_cnt++;
+	                delayed_pulse_when_primary++;
 	                sprintf(Category,"DeXT");
 	                
 	                TString graph_title = Form("Delayed cross-talk #DeltaV = %2.2f V",dV);
@@ -370,6 +372,7 @@ int main(int argc, char* argv[])
 	            else if (after_pulse > 0) //  Only after pulse
 	            {
 	                after_pulse_cnt++;
+	                delayed_pulse_when_primary++;
 	                sprintf(Category,"AP");
 	
 	                TString graph_title = Form("After pulse #DeltaV = %2.2f V",dV);
@@ -425,6 +428,7 @@ int main(int argc, char* argv[])
 					
 					if( delayedPulses[0].type == "DeXT" ) {
 						xtalk_pulse_cnt++;
+						delayed_pulse_when_secondary++;
 		                sprintf(Category,"DeXT");
 		                
 		                TString graph_title = Form("Delayed cross-talk #DeltaV = %2.2f V",dV);
@@ -448,6 +452,7 @@ int main(int argc, char* argv[])
 					
 					else if( delayedPulses[0].type == "AP" ) {
 						after_pulse_cnt++;
+						delayed_pulse_when_secondary++;
 		                sprintf(Category,"AP");
 		
 		                TString graph_title = Form("After pulse #DeltaV = %2.2f V",dV);
@@ -508,16 +513,19 @@ int main(int argc, char* argv[])
 	        cout << Form("-----> DCR contribution to DeXT: %2.1f pulses (%2.1f%s)",contribution_DCR_to_DeXT, 100*contribution_DCR_to_DeXT/timeDeXT->GetEntries(), "%") << endl;
 		}
 		
+		double tot_DCR_contribution = contribution_DCR_to_DeXT + contribution_DCR_to_AP;
+		double fraction_delayed_primary = delayed_pulse_when_primary/(delayed_pulse_when_primary + delayed_pulse_when_secondary);	// fraction of delayed primary noise vs all delayed pulses
+		
         double tot_npeaks = tot_noise_peaks_cnt + events_cnt;
-        double perc_noise_peaks = tot_primary_noise_peaks_cnt / (float)events_cnt;	// number of delayed pulses (DeXT+AP) additional to the DCR on which we trigger
+        double perc_noise_peaks = (tot_primary_noise_peaks_cnt - fraction_delayed_primary*tot_DCR_contribution) / (float)events_cnt;	// number of delayed pulses (DeXT+AP) additional to the DCR on which we trigger
         double perc_DiXT  = direct_xtalk_pulse_cnt / (float)events_cnt;		// DiXT is the number of direct pulses higher than thrs divided by the number of triggers
         // Remove DCR contribution to DeXT
         double perc_DeXT = (xtalk_pulse_cnt - contribution_DCR_to_DeXT) / (float)events_cnt;	// first order DeXT
         // Remove DCR contribution to AP
         double perc_AP  = (after_pulse_cnt - contribution_DCR_to_AP) / (float)events_cnt;	// first order AP
         //double perc_Sec = (tot_noise_peaks_cnt - after_pulse_cnt - xtalk_pulse_cnt) / (float)tot_npeaks;
-        double perc_Sec = secondary_pulse_cnt / (float)events_cnt;
-        double perc_DCR = (contribution_DCR_to_DeXT / (float)events_cnt) + (contribution_DCR_to_AP / (float)events_cnt);
+        double perc_Sec = (secondary_pulse_cnt - (1.0-fraction_delayed_primary)*tot_DCR_contribution) / (float)events_cnt;
+        double perc_DCR = (tot_DCR_contribution / (float)events_cnt);
 
         cout << "\nTotal number of events: " << events_cnt << endl;
         cout << "PE: " << pe << "\n" << endl;
@@ -628,20 +636,17 @@ int main(int argc, char* argv[])
     formatGr(results["#AP"], kOrange+7, 3005, "#DeltaV [V]", "Correlated noise [%]");
     formatGr(results["#DeXT"], kGreen+2, 3005, "#DeltaV [V]", "Correlated noise [%]");
     formatGr(results["#SecPeaks"], 7, 3005, "#DeltaV [V]", "Correlated noise [%]");
-    formatGr(results["#DCR"], 2, 3005, "#DeltaV [V]", "DCR contribution");
 
     results["#Total"]->Draw("ALP*3");
     results["#DiXT"]->Draw("LP*3");
     results["#AP"]->Draw("LP*3");
     results["#DeXT"]->Draw("LP*3");
-    results["#DCR"]->Draw("LP*3");
     
     TLegend * leg = new TLegend(0.15,0.65,0.47,0.87);
     leg->AddEntry(results["#Total"],"Total primary noise","f");
     leg->AddEntry(results["#DiXT"],"Direct cross-talk","f");
     leg->AddEntry(results["#AP"],"After-pulse","f");
     leg->AddEntry(results["#DeXT"],"Delayed cross-talk","f");
-    leg->AddEntry(results["#DCR"],"Contribution of DCR","f");
 
     leg->SetFillColor(kWhite);
     leg->Draw();
@@ -656,6 +661,7 @@ int main(int argc, char* argv[])
     
     formatGr(results["#SecPeaks"], kBlue, 3005, "#DeltaV [V]", "Correlated noise [%]", "Contribution of random and correlated noise");
     results["#SecPeaks"]->GetYaxis()->SetRangeUser(0,tot_max_order+2);
+    formatGr(results["#DCR"], 2, 3005, "#DeltaV [V]", "DCR contribution");
 
     results["#SecPeaks"]->Draw("ALP*3");
     results["#Total"]->Draw("LP*3");
