@@ -10,8 +10,8 @@ parser.add_argument('folder',default=None)
 parser.add_argument('--tocsv',action="store_true",default=None)
 opts = parser.parse_args()
 
-voltages = glob.glob(opts.folder+'/*')               # Input
-out = TFile("oscilloscope_out.root","recreate")      # Output
+voltages = glob.glob(opts.folder+'/*V')               # Input
+out = TFile(opts.folder+"/oscilloscope_out.root","recreate")      # Output
 
 timescale_factor = {"ps":1e-12, "ns":1e-9, "us": 1e-6, "ms":1e-3, "s":1, "ks":1e3}
 
@@ -82,7 +82,7 @@ for volt in voltages :                               # Loop on folders
 
 out.Close()
     
-    
+
 
 
 

@@ -354,7 +354,7 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
     return vol_folders;
 }
 
-void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:ah?")
+void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:aVh?")
 {
     int opt = getopt(argc, argv, optString);
     if(opt == -1){
@@ -379,6 +379,9 @@ void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:ah?")
                 break;
             case 'T':
                 globalArgs.fixed_thr = atof(optarg);
+                break;
+            case 'V':
+                globalArgs.only_Vbd = 1;
                 break;
             case 'h':
             case '?':

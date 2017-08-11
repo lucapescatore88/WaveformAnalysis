@@ -19,6 +19,14 @@ and characterizes them in order to quantify the noise of a SiPM.
 ./output -d {data folder} -S {path to config file} -o {existing output folder}
 ```
 
+### Wave viewer
+
+After running the analysis you can view categorised events one by one py
+
+```
+python wave_viewer.py {analysis output path}/noiseanalysis.root
+```
+
 ## Convention:
 1. Make a data capture on the oscilloscope (eg in 0.5V steps)
 2. Make a directory eg H2017_XX_chYY

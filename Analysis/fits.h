@@ -5,20 +5,23 @@
 #include "RooRealVar.h"
 #include "RooDataSet.h"
 #include "RooExponential.h"
+#include "RooGaussian.h"
 #include "RooAddPdf.h"
 #include "RooPlot.h"
 #include "RooFitResult.h"
 #include "RooPolynomial.h"
 #include "RooMsgService.h"
+#include "RooFFTConvPdf.h"
 
 #include <TCanvas.h>
 #include <iostream>
 #include <TFitResultPtr.h>
 #include <TPaveText.h>
+#include <fstream>
 
 #include "genparam.h"
 
-double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL)
+double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL, ofstream * values=NULL)
 {
     TCanvas * ca = new TCanvas("Voltage Breakdown calculation","Voltage Breakdown calculation",100,100,900,700);
     Vbias_ver->SetTitle("Voltage Breakdown calculation");
@@ -30,8 +33,19 @@ double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL)
     
     TFitResultPtr fit = Vbias_ver->Fit("pol1","S");
     Double_t VBD = fit->Value(0);
+    Double_t m = fit->Value(1);
     
     std::cout << "Breakdown voltage is: " << VBD << std::endl;
+    std::cout << "Amplitudes from fit:" << std::endl;
+    double * volt = Vbias_ver->GetY();
+    cout << "PeakAmp : [";
+    if(values) (*values) << "PeakAmp : [";
+    for(unsigned int i(0); i<Vbias_ver->GetN(); ++i) {
+		if(i<Vbias_ver->GetN()-1) cout << (volt[i] - VBD)/m << ",";
+		if(i==Vbias_ver->GetN()-1) cout << (volt[i] - VBD)/m << "]" << endl;
+		if(values && i<Vbias_ver->GetN()-1) (*values) << 1000*(volt[i] - VBD)/m << ",";
+		if(values && i==Vbias_ver->GetN()-1) (*values) << 1000*(volt[i] - VBD)/m << "]" << endl;
+	}
 
     TPaveText * pv = new TPaveText(0.2,0.65,0.35,0.74,"brNDC");
     pv->AddText(Form("V_{BD} = %2.2f",VBD));
@@ -153,8 +167,9 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
 {
     // Fit parameters and limits to calculate AP recharge
 
-    c->cd();
+    TCanvas * cAPfit = new TCanvas();
     APtime->Draw("AP*");
+    // Why is this function used for fit ??????
     TF1 * exp = new TF1(Form("exp_%s",vol),"[0]*(1 - exp(-(x-[5])/[1])) + [2]*exp(-(x-[4])/[3])",4*ns,180 * ns);
     //exp->SetParameter(0,pe);
     //exp->SetParLimits(0,0.2*pe,10*pe);    
@@ -168,8 +183,10 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
     exp->FixParameter(5,0*ns);	// found to be zero so we fix it
 
     APtime->Fit(Form("exp_%s",vol),"","",30*ns,100*ns);
-    exp->Draw("same");
-    
+    //exp->Draw("same");
+    //cAPfit->Write(TString("Fit")+APtime->GetName());
+
+    c->cd();
     TPaveText * pv = new TPaveText(0.6,0.65,0.75,0.74,"brNDC");
     pv->AddText(Form("Recovery time = %2.1fns",1e9*exp->GetParameter(1)));
     pv->SetFillColor(kWhite);
@@ -257,6 +274,12 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
 	//make the Signal model -- exponential decay PDF
 	RooRealVar lambda("lambda","Lambda [Hz]",1.2*startLambda,0.8*startLambda);
 	RooExponential SigModel("SigModel","Exponential decay PDF",time,lambda);
+	//~ RooExponential ExpModel("ExpModel","Exponential decay PDF",time,lambda);
+	//~ RooRealVar mg("meangauss","meangauss",0,0,maxTime);
+	//~ RooRealVar sg("sigmagauss","sigmagauss",0,0,maxTime);
+	//~ RooGaussian gauss("gauss","gauss",time,mg,sg);
+	//~ RooFFTConvPdf SigModel("SigModel","Exponential decay convoluted with Gaussian",time,ExpModel,gauss);
+	
 	//make the Background model -- constant bkg due to DCR
 	RooPolynomial BkgModel("BkgModel","Constant background PDF",time);
 	
@@ -296,7 +319,7 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
 	
 	TPaveText * pv = new TPaveText(0.4,0.67,0.85,0.85,"brNDC");
     pv->AddText(Form("Characteristic time = (%2.1f#pm%2.1f) ns",1e9*result_tau,1e9*result_tau_error));
-    pv->AddText(Form("DCR contribution = (%2.1f#pm%2.1f) pulses (%2.1f%s)",result_Nbkg,result_Nbkg_error,100*result_Nbkg/tree->GetEntries(),"%"));
+    pv->AddText(Form("DCR contribution = (%2.1f#pm%2.1f) pulses (%2.1f%s)",result_Nbkg,result_Nbkg_error,100*(result_Nbkg/entries),"%"));
     pv->SetFillColor(kWhite);
     pv->Draw();
     

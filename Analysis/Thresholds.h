@@ -15,9 +15,12 @@ struct Thresholds
 
     const double time_dist;
 
-//} default_thrs {4., 2., 2., 0.4, 1.17, 0.8, 0.4};
+//} default_thrs {4., 2., 2., 0.4, 1.17, 0.8, 0.4};	// H2017 Luca
+} default_thrs {25., 2., 2., 0.4, 1.17, 0.8, 0.4};	// H2017 Olivier
+//} default_thrs {25., 2., 2., 0.5, 1.17, 0.8, 0.4};	// H2017 Olivier
+//} default_thrs {25., 2., 2., 0.6, 1.17, 0.6, 0.4};	// H2017 Olivier - PDE single threshold
 //} default_thrs {4., 2., 2., 0.6, 1.2, 0.6, 0.4};
-} default_thrs {10., 5., 5., 0.5, 1.2, 0.8, 0.4};
+//} default_thrs {10., 5., 5., 0.5, 1.2, 0.8, 0.4};	//FBK
 //} default_thrs {10., 5., 5., 0.6, 1.2, 0.6, 0.4};
 
 #endif

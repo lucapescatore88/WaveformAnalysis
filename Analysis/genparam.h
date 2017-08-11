@@ -22,8 +22,9 @@ struct globalArgs_t
     bool save_all;                          /* -a  */
     TString input;                          /* -I root  */
     double fixed_thr;                       /* -T root  */             
+    int only_Vbd;                     		/* -V root  */             
 
-} globalArgs {" "," "," ",false,"root",-1};
+} globalArgs {" "," "," ",false,"root",-1,0};
 
 struct delayedPulse
 {
