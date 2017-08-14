@@ -253,8 +253,9 @@ int main(int argc, char* argv[])
 
             bool done = false;
             bool veryclean = true;
-            double lastPulseT = time[0];	// used to apply an analysis dead time after each pulse (to avoid noise and ringing)
-            double deadTime = 2*ns;			// this is a dead time for the analysis (not of the detector)
+            double lastPulseT = 0;	// used to apply an analysis dead time after each pulse (to avoid noise and ringing)
+            //double deadTime = 5*ns;	// this is a dead time for the analysis (not of the detector)
+            double deadTime = cthrs.del_xtalk_minT * ns;	// deadtime set to min delay time of DeXT (optimised to avoid ringing)
             for (int row = 2; row < npts-2; row++) 
             {
                 double curT = time[row];
@@ -262,10 +263,9 @@ int main(int argc, char* argv[])
 
                 // Skip if not on a maximum                
                 if( curT < 0. || !( curV > volts[row-2] && curV > volts[row+2])) continue;
-                //if( curT < 0. || !( curV > volts[row-2] && curV > volts[row+2]) || curT < lastPulseT+deadTime) continue;	// should de debugged!!! this is to avoid ringing and noise to trigger additional correlated noise pulses
                 else if (done) { done = false; continue; }
                 done = true;
-
+                
                 if ( curT > 2*ns && curV > 0.4*pe) veryclean = false;
 
                 // Direct x-talk: in 0-2 ns window and V > direct th.
@@ -282,7 +282,7 @@ int main(int argc, char* argv[])
                 
                 // we look for delayed peaks (AP, DeXT)
 				// Delayed x-talk: time larger than end of DCR window and V > delayed XT th
-				else if ( curT > cthrs.dir_xtalk_maxT * ns && curV > DeXT_thr ) 
+				else if ( curT > cthrs.del_xtalk_minT * ns && curV > DeXT_thr && curT > lastPulseT+deadTime ) 
                 {
 					xtalk_pulse++;
                     noise_peaks_cnt++;
@@ -292,9 +292,10 @@ int main(int argc, char* argv[])
                     dext.volt = curV;
                     dext.type = "DeXT";
                     delayedPulses.push_back(dext);
+                    lastPulseT = curT;
 				}
 				// After-pulse: time larger 2ns and V > AP th
-				else if ( curT > cthrs.AP_minT * ns && curV > AP_thr ) 
+				else if ( curT > cthrs.AP_minT * ns && curV > AP_thr && curT > lastPulseT+deadTime ) 
                 {	// if it's not a DeXT, it might be an AP
 					after_pulse++;
                     noise_peaks_cnt++;
@@ -305,9 +306,10 @@ int main(int argc, char* argv[])
                     ap.volt = curV;
                     ap.type = "AP";
                     delayedPulses.push_back(ap);
+                    lastPulseT = curT;
 				}
+				else if ( curT <= lastPulseT+deadTime ) continue; // skip pulses that might be due to ringing
 				
-				lastPulseT = curT;
 				//cout << "Pulse at t=" << curT << "   dead time until t=" << lastPulseT+deadTime << endl;
 
             } // loop over time
@@ -600,13 +602,19 @@ int main(int argc, char* argv[])
         cout << Form("Charge correction: %.4f pe", graphs["Charge"]->Integral() / (pe*tot_npeaks) ) << endl;
         cout << Form("Frequency correction: %.2f%% (calculated from tot_noise_peaks_cnt)  *******  %.2f%% (calculated from sum of corr. noise)", corr_frequency*100, (perc_DeXT+perc_AP+perc_Sec)*100) << endl;
         
-
-        // Fits for long tau and recovery time
-
-        cout << "\n\n-----> Long tau fit ***" << endl;
+        // Final persistence plots
         double amp0, tau;
-        //TF1 * exp_longtau = fitLongTau(cleanforfit, &amp0, &tau, pe, vol, canv["clean"]);
-        TF1 * exp_longtau = fitLongTau(forfit, &amp0, &tau, pe, vol, canv["clean"], cleanforfit);	// does not work properly
+        cout << "\n\n-----> Long tau fit ***" << endl;
+        TF1 * exp_longtau = drawPersistenceWithLongTauFit(persistence_clean,canv_persistence["clean"], &amp0, &tau, pe, vol,Form("Clean waveforms #DeltaV = %2.2f V",dV));
+        drawPersistence(persistence_DiXT,canv_persistence["DiXT"],Form("Direct cross-talk #DeltaV = %2.2f V",dV));
+        drawPersistence(persistence_DeXT,canv_persistence["DeXT"],Form("Delayed cross-talk #DeltaV = %2.2f V",dV));
+        drawPersistence(persistence_AP,canv_persistence["AP"],Form("After-pulse #DeltaV = %2.2f V",dV));
+        
+        //~ // Fits for long tau and recovery time
+        //~ cout << "\n\n-----> Long tau fit ***" << endl;
+        //~ double amp0, tau;
+        //~ //TF1 * exp_longtau = fitLongTau(cleanforfit, &amp0, &tau, pe, vol, canv["clean"]);
+        //~ TF1 * exp_longtau = fitLongTau(forfit, &amp0, &tau, pe, vol, canv["clean"], cleanforfit);	// does not work properly
         
         cout << "\n\n-----> After pulse fit ***" << endl;
         TF1 * exp_AP = fitAPTau(Expfit_AP, amp0, tau, pe, vol, canv["AP"]);
@@ -637,13 +645,6 @@ int main(int argc, char* argv[])
         results["#SecPeaksDel"]->SetPoint(i,dV,graphs["NpeaksDel"]->GetMean());
         results["#SecPeaksDel"]->SetPointError(i,0.,graphs["NpeaksDel"]->GetMeanError());
         
-        // Final persistence plots
-        double amp0_2, tau_2;
-        TF1 * exp_longtau2 = drawPersistenceWithLongTauFit(persistence_clean,canv_persistence["clean"], &amp0_2, &tau_2, pe, vol,Form("Clean waveforms #DeltaV = %2.2f V",dV));
-        drawPersistence(persistence_DiXT,canv_persistence["DiXT"],Form("Direct cross-talk #DeltaV = %2.2f V",dV));
-        drawPersistence(persistence_DeXT,canv_persistence["DeXT"],Form("Delayed cross-talk #DeltaV = %2.2f V",dV));
-        drawPersistence(persistence_AP,canv_persistence["AP"],Form("After-pulse #DeltaV = %2.2f V",dV));
-        
         cout << "Saving objects" << endl;
 
         // Save/print results:
@@ -656,7 +657,7 @@ int main(int argc, char* argv[])
         for(auto const &e : canv_persistence) objects_to_save.push_back(e.second);
         // fit for long tau and AP
         objects_to_save.push_back(exp_longtau);
-        objects_to_save.push_back(exp_longtau2);
+        //objects_to_save.push_back(exp_longtau2);
         objects_to_save.push_back(exp_AP);
 
         TString dirname = "pulse_shape_" + TString(vol);
@@ -668,7 +669,7 @@ int main(int argc, char* argv[])
 			hfile->cd();
 			if(globalArgs.save_all)
 				if(!(obj->InheritsFrom(TF1::Class()) || obj->InheritsFrom(TF2::Class())))
-					obj->SaveAs(globalArgs.res_folder+Form("%s_%s.pdf",obj->GetName(),vol));
+					obj->SaveAs(globalArgs.res_folder+Form("%s.pdf",obj->GetName()));
 		}
 
         cout << "Done" << endl;
@@ -757,8 +758,10 @@ int main(int argc, char* argv[])
     cfinal->Print(globalArgs.res_folder+"Correction.pdf");
     cfinal->Write();
     
-    // Print corrections in a text file for easy copy and paste into PDE config file
+    // Print corrections and DiXT in a text file for easy copy and paste into PDE config file
     double * corr_freq = results["#CorrectionFre"]->GetY();
+    cout << "P_all_Freq : [";
+    if(values_for_pde) (*values_for_pde) << "P_all_Freq : [";
     for(unsigned int i(0); i<results["#CorrectionFre"]->GetN(); ++i) {
 		if(i<results["#CorrectionFre"]->GetN()-1) cout << corr_freq[i] << ",";
 		if(i==results["#CorrectionFre"]->GetN()-1) cout << corr_freq[i] << "]" << endl;
@@ -766,11 +769,22 @@ int main(int argc, char* argv[])
 		if(values_for_pde && i==results["#CorrectionFre"]->GetN()-1) (*values_for_pde) << corr_freq[i] << "]" << endl;
 	}
 	double * corr_curr = results["#CorrectionCur"]->GetY();
+    cout << "P_all_Current : [";
+    if(values_for_pde) (*values_for_pde) << "P_all_Current : [";
     for(unsigned int i(0); i<results["#CorrectionCur"]->GetN(); ++i) {
 		if(i<results["#CorrectionCur"]->GetN()-1) cout << corr_curr[i] << ",";
 		if(i==results["#CorrectionCur"]->GetN()-1) cout << corr_curr[i] << "]" << endl;
 		if(values_for_pde && i<results["#CorrectionCur"]->GetN()-1) (*values_for_pde) << corr_curr[i] << ",";
 		if(values_for_pde && i==results["#CorrectionCur"]->GetN()-1) (*values_for_pde) << corr_curr[i] << "]" << endl;
+	}
+	double * dixt = results["#DiXT"]->GetY();
+    cout << "DiXT_Corr : [";
+    if(values_for_pde) (*values_for_pde) << "DiXT_Corr : [";
+    for(unsigned int i(0); i<results["#DiXT"]->GetN(); ++i) {
+		if(i<results["#DiXT"]->GetN()-1) cout << dixt[i] << ",";
+		if(i==results["#DiXT"]->GetN()-1) cout << dixt[i] << "]" << endl;
+		if(values_for_pde && i<results["#DiXT"]->GetN()-1) (*values_for_pde) << dixt[i] << ",";
+		if(values_for_pde && i==results["#DiXT"]->GetN()-1) (*values_for_pde) << dixt[i] << "]" << endl;
 	}
 	
 	// ----------

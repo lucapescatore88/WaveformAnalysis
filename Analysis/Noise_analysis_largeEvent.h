@@ -316,6 +316,9 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
 {
     string s;
     vector <TString> vol_folders;
+    
+    Thresholds thrs_code(default_thrs);
+	double def_AP_minT(thrs_code.AP_minT), def_DeXT_minT(thrs_code.del_xtalk_minT), def_DiXT_maxT(thrs_code.dir_xtalk_maxT), def_AP_thrs(thrs_code.AP), def_DiXT_thrs(thrs_code.dir_xtalk), def_DeXT_thrs(thrs_code.del_xtalk);
 
     while (true) 
     {    
@@ -330,26 +333,32 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
         
         if (s.find("#") == 0 || s=="") continue; // Skip commented  or empty lines
         
-        //Find the voltages
-        if(sscanf(searchString, "V || %s ||", volt)==1)
-        {
-            vol_folders.push_back(volt);
-            thresholds.push_back(Thresholds(default_thrs));
-        }
+        // Threshold defaulf values
+        sscanf(searchString, "DefThrs :: AP_minT=%lf :: DeXT_minT=%lf :: DiXT_maxT=%lf :: AP_thrs=%lf :: DiXT_thrs=%lf :: DeXT_thrs=%lf", &def_AP_minT, &def_DeXT_minT, &def_DiXT_maxT, &def_AP_thrs, &def_DiXT_thrs, &def_DeXT_thrs);
         
-        if(sscanf(searchString, "V/th || %s ||", volt)==1)
+        //Find the voltages and thresholds
+        char thres_config[256] = "";
+        if(sscanf(searchString, "V || %s ||%[^\t\n]", volt, thres_config)>=1)
         {
             vol_folders.push_back(volt);
-            getline((*setupFile), s);
-            const char* thresholds_string = s.c_str();
-            sscanf(thresholds_string, "Rej_t: %lf, AP_th: %lf, Delay_th: %lf, Imm_th: %lf", &rt,&ap,&delay,&imme);
-            Thresholds defThr{rt, default_thrs.del_xtalk_minT, default_thrs.dir_xtalk_maxT, ap, imme, delay, 0.4};
-            thresholds.push_back(defThr);
+            //if(thres_config == "") thresholds.push_back(Thresholds(default_thrs));
+            if(thres_config == "") thresholds.push_back(defThresholds(def_AP_minT, def_DeXT_minT, def_DiXT_maxT, def_AP_thrs, def_DiXT_thrs, def_DeXT_thrs));
+            else {
+				// format should be: (times are given in nanoseconds and thrs in units of pe
+				// AP_minT=%lf :: DeXT_minT=%lf :: DiXT_maxT=%lf :: AP_thrs=%lf :: DiXT_thrs=%lf :: DeXT_thrs=%lf
+				double AP_minT, DeXT_minT, DiXT_maxT, AP_thrs, DiXT_thrs, DeXT_thrs;
+				if(sscanf(thres_config, " AP_minT=%lf :: DeXT_minT=%lf :: DiXT_maxT=%lf :: AP_thrs=%lf :: DiXT_thrs=%lf :: DeXT_thrs=%lf", &AP_minT, &DeXT_minT, &DiXT_maxT, &AP_thrs, &DiXT_thrs, &DeXT_thrs)==6)
+					thresholds.push_back(defThresholds(AP_minT, DeXT_minT, DiXT_maxT, AP_thrs, DiXT_thrs, DeXT_thrs));
+				else thresholds.push_back(defThresholds(def_AP_minT, def_DeXT_minT, def_DiXT_maxT, def_AP_thrs, def_DiXT_thrs, def_DeXT_thrs));
+			}
         }
         
         if(sscanf(searchString, "Files at each voltage || %d ||", &numfiles)==1) 
             (*data_size) = numfiles;  
     }
+    
+    for(unsigned int i(0); i<vol_folders.size(); ++i)
+	    cout << "Voltage: " << vol_folders[i] << " // " << Form("AP_minT=%2.2lf :: DeXT_minT=%2.2lf :: DiXT_maxT=%2.2lf :: AP_thrs=%2.2lf :: DiXT_thrs=%2.2lf :: DeXT_thrs=%2.2lf", thresholds[i].AP_minT, thresholds[i].del_xtalk_minT, thresholds[i].dir_xtalk_maxT, thresholds[i].AP, thresholds[i].dir_xtalk, thresholds[i].del_xtalk) << endl;
 
     return vol_folders;
 }
@@ -365,14 +374,16 @@ void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:aVh?")
     while(opt != -1){
         switch(opt){
             case 'd':
-                globalArgs.data_folder = optarg;
+	            if(TString(optarg).EndsWith("/")) globalArgs.data_folder = optarg;
+	            else globalArgs.data_folder = (string(optarg) + string("/")).c_str();
                 //std::cout << "-p option path= " << globalArgs.data_folder << std::endl;
                 break;
             case 'S':
                 globalArgs.arg_pathToSetupFile = optarg;
                 break;
             case 'o':
-                globalArgs.res_folder = optarg;
+                if(TString(optarg).EndsWith("/")) globalArgs.res_folder = optarg;
+	            else globalArgs.res_folder = (string(optarg) + string("/")).c_str();
                 break;
             case 'a':
                 globalArgs.save_all = true;
@@ -390,6 +401,7 @@ void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:aVh?")
                 std::cerr << " '-d'+'-S'+'-o' options are necessary!" << std::endl;
                 std::cerr << "-----------------------------------------------------------------------------------------------------" << std::endl;
                 std::cerr << " use '-a' option afterwards to save all the plots of the analysis to further check." << std::endl;
+                std::cerr << " use '-V' option afterwards to perform only Vbd measurement and quit." << std::endl;
                 std::cerr << "-----------------------------------------------------------------------------------------------------" << std::endl;
                 std::cerr << "Example: ./output -d /Users/Analysis_waveforms/ov_scan_pde_H2014/ -S /Users/Analysis_waveforms/config_file.txt -o /Users/Analysis_waveforms/Plots/ [-a]"<<std::endl;
                 exit(EXIT_FAILURE);

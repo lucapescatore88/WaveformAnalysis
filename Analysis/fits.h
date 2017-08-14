@@ -41,8 +41,8 @@ double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL, ofstream * val
     cout << "PeakAmp : [";
     if(values) (*values) << "PeakAmp : [";
     for(unsigned int i(0); i<Vbias_ver->GetN(); ++i) {
-		if(i<Vbias_ver->GetN()-1) cout << (volt[i] - VBD)/m << ",";
-		if(i==Vbias_ver->GetN()-1) cout << (volt[i] - VBD)/m << "]" << endl;
+		if(i<Vbias_ver->GetN()-1) cout << 1000*(volt[i] - VBD)/m << ",";
+		if(i==Vbias_ver->GetN()-1) cout << 1000*(volt[i] - VBD)/m << "]" << endl;
 		if(values && i<Vbias_ver->GetN()-1) (*values) << 1000*(volt[i] - VBD)/m << ",";
 		if(values && i==Vbias_ver->GetN()-1) (*values) << 1000*(volt[i] - VBD)/m << "]" << endl;
 	}
@@ -169,13 +169,13 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
 
     TCanvas * cAPfit = new TCanvas();
     APtime->Draw("AP*");
-    // Why is this function used for fit ??????
+    // function for fit is the exponential increase from the pixel recovery + long component of the pulse (exponential decrease)
     TF1 * exp = new TF1(Form("exp_%s",vol),"[0]*(1 - exp(-(x-[5])/[1])) + [2]*exp(-(x-[4])/[3])",4*ns,180 * ns);
     //exp->SetParameter(0,pe);
     //exp->SetParLimits(0,0.2*pe,10*pe);    
     exp->FixParameter(0,pe);  
     exp->SetParameter(1,50*ns);
-    exp->SetParLimits(1,5*ns,100*ns);
+    exp->SetParLimits(1,5*ns,150*ns);
     exp->FixParameter(2,amp0);
     //exp->SetParLimits(2,0.,1.);
     exp->FixParameter(3,tau);
@@ -187,8 +187,8 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
     //cAPfit->Write(TString("Fit")+APtime->GetName());
 
     c->cd();
-    TPaveText * pv = new TPaveText(0.6,0.65,0.75,0.74,"brNDC");
-    pv->AddText(Form("Recovery time = %2.1fns",1e9*exp->GetParameter(1)));
+    TPaveText * pv = new TPaveText(0.6,0.8,0.85,0.85,"brNDC");
+    pv->AddText(Form("Recovery time = %2.1f#pm%2.1f ns",1e9*exp->GetParameter(1),1e9*exp->GetParError(1)));
     pv->SetFillColor(kWhite);
     pv->Draw();
     exp->Draw("SAME");
