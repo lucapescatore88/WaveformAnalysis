@@ -129,15 +129,6 @@ TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * am
     persistence->GetXaxis()->SetTitle("Time [s]");
     TF1 * exp_longtau = 0;
     if(persistence->GetEntries()) {
-		// have to do some tricks with TPads otherwise it does not work with draw option "CONT4Z"...
-		//~ TPad *pad1 = new TPad("pad1","",0,0,1,1);
-		//~ TPad *pad2 = new TPad("pad2","",0,0,1,1);
-		//~ pad2->SetFillStyle(0); //will be transparent
-		//~ pad2->SetFillColor(0);
-		//~ pad2->SetFrameFillStyle(0);
-		//~ pad1->Draw();
-		//~ pad1->cd();
-	    //~ persistence->Draw("CONT4Z");
 	    persistence->Draw("COLZ");
 	    c->SetLogz();
 	    gPad->Update();
@@ -149,26 +140,7 @@ TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * am
 		palette->SetY2NDC(0.9);
 		gPad->Modified();
 		gPad->Update();
-	    //~ pad1->SetLogz();
-	    //~ pad1->Update();
-	    //~ //persistence->GetListOfFunctions()->Print();
-	    //~ TPaletteAxis *palette = (TPaletteAxis*)persistence->GetListOfFunctions()->FindObject("palette");
-		//~ palette->SetX1NDC(0.91);
-		//~ palette->SetX2NDC(0.93);
-		//~ palette->SetY1NDC(0.25);
-		//~ palette->SetY2NDC(0.9);
-		//~ pad1->Modified();
-		//~ pad1->Update();
-		
-		//~ double ymin = 0;
-		//~ double ymax = 0.03;
-		//~ double dy = (ymax-ymin)/0.8; //10 per cent margins top and bottom
-		//~ double xmin = 0;
-		//~ double xmax = 0.18e-6;
-		//~ double dx = (xmax-xmin)/0.8; //10 per cent margins left and right
-		//~ pad2->Range(xmin-0.1*dx,ymin-0.1*dy,xmax+0.1*dx,ymax+0.1*dy);
-		//~ pad2->Draw();
-		//~ pad2->cd();
+        
 		exp_longtau = fitLongTau2(persistence, amp0, tau, pe, vol);
 		exp_longtau->Draw("SAME A*");
 	    TPaveText * pv = new TPaveText(0.6,0.65,0.75,0.74,"brNDC");
@@ -245,6 +217,7 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
         }
 
         volt_ampl->Fill(maxV);
+        
         delete time;
         delete volts;
     }
@@ -260,7 +233,7 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
     Double_t pe_volt   = f1->GetParameter(1);
     volt_ampl->SetTitle(globalArgs.res_folder+Form("Amplitude calculation %s, pe = %2.3f",vol_folder,pe_volt));
     if(option=="root") volt_ampl->Write();
-
+    
     delete f1;
     delete volt_ampl;
     

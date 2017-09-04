@@ -46,9 +46,11 @@ double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL, ofstream * val
 		if(values && i<Vbias_ver->GetN()-1) (*values) << 1000*(volt[i] - VBD)/m << ",";
 		if(values && i==Vbias_ver->GetN()-1) (*values) << 1000*(volt[i] - VBD)/m << "]" << endl;
 	}
+	cout << "VBD : " << VBD << endl;
+	if(values) (*values) << "VBD : " << VBD << endl;
 
-    TPaveText * pv = new TPaveText(0.2,0.65,0.35,0.74,"brNDC");
-    pv->AddText(Form("V_{BD} = %2.2f",VBD));
+    TPaveText * pv = new TPaveText(0.2,0.65,0.4,0.74,"brNDC");
+    pv->AddText(Form("V_{BD} = %2.2f#pm%2.2f V",VBD,fit->Error(0)));
     pv->SetFillColor(kWhite);
     pv->Draw();
     ca->Print(globalArgs.res_folder+"Breakdown_voltage.pdf");
@@ -324,6 +326,18 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
     pv->Draw();
     
     return new_fit;
+}
+
+double fitSimple1D(TH1 * h) {
+	TCanvas  * c = new TCanvas();
+	double pos_maxi = h->GetBinCenter(h->GetMaximumBin());
+    double around   = 0.1*pos_maxi;
+    TF1 * f1 = new TF1("f1","gaus",pos_maxi-around,pos_maxi+around);
+    h->Fit("f1","RQ");
+    double mean = f1->GetParameter(1);
+    h->SetTitle(Form("%s (<1PE>=%.2fmV.ns, <Charge>=%.2fmV.ns)",h->GetTitle(),mean*1e12,h->GetMean()*1e12));
+    delete f1, c;
+    return mean;
 }
 
 #endif

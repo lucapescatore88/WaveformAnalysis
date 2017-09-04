@@ -53,11 +53,40 @@ TH1 * convertGrToH(TGraph * gr)
     Double_t * xx  = gr->GetX();
     Double_t * yy = gr->GetY();
     double halfDT = (xx[1] - xx[0])/2.; 
-    TH1 * h = new TH1F(TString(gr->GetName())+"H",gr->GetTitle(),
+    //TH1 * h = new TH1F(TString(gr->GetName())+"H",gr->GetTitle(),
+    TH1 * h = new TH1F("","",
         gr->GetN(),xx[0]-halfDT,xx[gr->GetN()-1]+halfDT);
     for(int i = 1; i < gr->GetN(); i++ ) h->SetBinContent(i,yy[i]);
 
     return h;
+}
+
+TH1 * createHist(int npts, double * x, double * y)
+{
+    double halfDT = (x[1] - x[0])/2.;
+    TH1 * h = new TH1D("","",npts,x[0]-halfDT,x[npts-1]+halfDT);
+    for(int i(0); i < npts; i++ ) h->SetBinContent(i+1,y[i]);
+    return h;
+}
+
+double computeIntegral(TGraph * g, double threshold) {
+    unsigned int N = g->GetN();
+    double * xx = g->GetX();
+    double * yy = g->GetY();
+    double integral(0);
+    for(unsigned int pt(1); pt<N; ++pt) {
+        if(yy[pt]>threshold) {
+            //integral += 0.5 * (xx[pt-1]*yy[pt] - xx[pt]*yy[pt-1]);
+            //integral += 0.5 * (xx[pt]-xx[pt-1])*(yy[pt]-yy[pt-1]);
+            integral += 0.5 * (xx[pt]-xx[pt-1])*(yy[pt]+yy[pt-1]);
+        }
+        //integral += 0.5 * (xx[pt-1]*yy[pt] - xx[pt]*yy[pt-1]);
+        //integral += 0.5 * (xx[pt]-xx[pt-1])*(yy[pt]+yy[pt-1]);
+        //integral += yy[pt];
+    }
+    return integral;
+    //return abs(integral);
+    //return g->Integral();
 }
 
 TGraph * average(TGraph * gr, TGraph * gr2)
