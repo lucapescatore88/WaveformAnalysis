@@ -137,4 +137,16 @@ TGraphErrors * average2Dhist(TH2 * h) {
 	return average;
 }
 
+void printValues(double values[], int n, std::string option, ostream * out = 0) {
+	cout << option << " : [";
+    if(out) (*out) << option << " : [";
+    for(unsigned int i(0); i<n; ++i) {
+        if(i<n-1) cout << values[i] << ",";
+        if(i==n-1) cout << values[i] << "]" << endl;
+        if(out && i<n-1) (*out) << values[i] << ",";
+        if(out && i==n-1) (*out) << values[i] << "]" << endl;
+    }
+	return;
+}
+
 #endif

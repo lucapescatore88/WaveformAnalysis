@@ -664,26 +664,39 @@ int main(int argc, char* argv[])
         cout << "Building final results" << endl;
     
         results["#DiXT"]->SetPoint(i,dV,perc_DiXT*100.);
-        results["#DiXT"]->SetPointError(i,0.,TMath::Sqrt(perc_DiXT*(1.-perc_DiXT)/events_cnt)*100.);
+        double DiXT_error = TMath::Sqrt(perc_DiXT*(1.-perc_DiXT)/events_cnt)*100.;
+        results["#DiXT"]->SetPointError(i,0.,DiXT_error);
+        
         // Errors don't include the error on the DCR estimation yet !!!
         results["#AP"]->SetPoint(i,dV,perc_AP*100.);
         results["#AP"]->SetPointError(i,0.,TMath::Sqrt(perc_AP*(1.-perc_AP)/events_cnt)*100.);
+        
         results["#DeXT"]->SetPoint(i,dV,perc_DeXT*100.);
         results["#DeXT"]->SetPointError(i,0.,TMath::Sqrt(perc_DeXT*(1.-perc_DeXT)/events_cnt)*100.);
+        
         results["Charge"]->SetPoint(i,dV,graphs["Charge"]->GetMean());
         results["Charge"]->SetPointError(i,0.,graphs["Charge"]->GetMeanError());
+        
         results["#CorrectionFre"]->SetPoint(i,dV,corr_frequency*100.);
-        results["#CorrectionFre"]->SetPointError(i,dV,corr_frequency*(1-corr_frequency)/(float)(tot_npeaks - tot_DCR_contribution)*100.);
+        double CorrectionFre_error = 100*TMath::Sqrt(corr_frequency*(1-corr_frequency)/(float)(tot_npeaks - tot_DCR_contribution));
+        results["#CorrectionFre"]->SetPointError(i,0,CorrectionFre_error);
+        
         results["#CorrectionCur"]->SetPoint(i,dV,corr_current*100.);
-        //results["#CorrectionCur"]->SetPointError(i,dV,corr_current*(1-corr_current)/(float)(tot_npeaks - tot_DCR_contribution)*100.);
+        double CorrectionCur_error = CorrectionFre_error + DiXT_error;  // sum of error of DiXT and FreqCorr
+        results["#CorrectionCur"]->SetPointError(i,0,CorrectionCur_error);
+        
         results["#Total"]->SetPoint(i,dV,perc_noise_peaks*100.);
         results["#Total"]->SetPointError(i,0.,TMath::Sqrt(perc_noise_peaks*(1.-perc_noise_peaks)/(tot_noise_peaks_cnt + events_cnt))*100.);
+        
         results["#DCR"]->SetPoint(i,dV,perc_DCR*100.);
         results["#DCR"]->SetPointError(i,0,TMath::Sqrt(perc_DCR*(1.-perc_DCR)/(events_cnt))*100.);
+        
         results["#SecPeaks"]->SetPoint(i,dV,perc_Sec*100.);
         results["#SecPeaks"]->SetPointError(i,0.,TMath::Sqrt(perc_Sec*(1.-perc_Sec)/events_cnt)*100.);
+        
         results["#SecPeaksDiXT"]->SetPoint(i,dV,graphs["NpeaksDiXT"]->GetMean());
         results["#SecPeaksDiXT"]->SetPointError(i,0.,graphs["NpeaksDiXT"]->GetMeanError());
+        
         results["#SecPeaksDel"]->SetPoint(i,dV,graphs["NpeaksDel"]->GetMean());
         results["#SecPeaksDel"]->SetPointError(i,0.,graphs["NpeaksDel"]->GetMeanError());
         
@@ -801,33 +814,15 @@ int main(int argc, char* argv[])
     cfinal->Write();
     
     // Print corrections and DiXT in a text file for easy copy and paste into PDE config file
-    double * corr_freq = results["#CorrectionFre"]->GetY();
-    cout << "P_all_Freq : [";
-    if(values_for_pde) (*values_for_pde) << "P_all_Freq : [";
-    for(unsigned int i(0); i<results["#CorrectionFre"]->GetN(); ++i) {
-        if(i<results["#CorrectionFre"]->GetN()-1) cout << corr_freq[i] << ",";
-        if(i==results["#CorrectionFre"]->GetN()-1) cout << corr_freq[i] << "]" << endl;
-        if(values_for_pde && i<results["#CorrectionFre"]->GetN()-1) (*values_for_pde) << corr_freq[i] << ",";
-        if(values_for_pde && i==results["#CorrectionFre"]->GetN()-1) (*values_for_pde) << corr_freq[i] << "]" << endl;
-    }
-    double * corr_curr = results["#CorrectionCur"]->GetY();
-    cout << "P_all_Current : [";
-    if(values_for_pde) (*values_for_pde) << "P_all_Current : [";
-    for(unsigned int i(0); i<results["#CorrectionCur"]->GetN(); ++i) {
-        if(i<results["#CorrectionCur"]->GetN()-1) cout << corr_curr[i] << ",";
-        if(i==results["#CorrectionCur"]->GetN()-1) cout << corr_curr[i] << "]" << endl;
-        if(values_for_pde && i<results["#CorrectionCur"]->GetN()-1) (*values_for_pde) << corr_curr[i] << ",";
-        if(values_for_pde && i==results["#CorrectionCur"]->GetN()-1) (*values_for_pde) << corr_curr[i] << "]" << endl;
-    }
-    double * dixt = results["#DiXT"]->GetY();
-    cout << "DiXT_Corr : [";
-    if(values_for_pde) (*values_for_pde) << "DiXT_Corr : [";
-    for(unsigned int i(0); i<results["#DiXT"]->GetN(); ++i) {
-        if(i<results["#DiXT"]->GetN()-1) cout << dixt[i] << ",";
-        if(i==results["#DiXT"]->GetN()-1) cout << dixt[i] << "]" << endl;
-        if(values_for_pde && i<results["#DiXT"]->GetN()-1) (*values_for_pde) << dixt[i] << ",";
-        if(values_for_pde && i==results["#DiXT"]->GetN()-1) (*values_for_pde) << dixt[i] << "]" << endl;
-    }
+    // P_all_freq
+    printValues(results["#CorrectionFre"]->GetY(), results["#CorrectionFre"]->GetN(), "P_all_Freq", values_for_pde);
+    printValues(results["#CorrectionFre"]->GetEY(), results["#CorrectionFre"]->GetN(), "P_all_Freq_error", values_for_pde);
+    // P_all_current
+    printValues(results["#CorrectionCur"]->GetY(), results["#CorrectionCur"]->GetN(), "P_all_Current", values_for_pde);
+    printValues(results["#CorrectionCur"]->GetEY(), results["#CorrectionCur"]->GetN(), "P_all_Current_error", values_for_pde);
+    // DiXT
+    printValues(results["#DiXT"]->GetY(), results["#DiXT"]->GetN(), "DiXT_Corr", values_for_pde);
+    printValues(results["#DiXT"]->GetEY(), results["#DiXT"]->GetN(), "DiXT_Corr_error", values_for_pde);
     
     // ----------
     Double_t tot_max_peaks = TMath::MaxElement(results["#SecPeaksDiXT"]->GetN(),results["#SecPeaksDiXT"]->GetY());
