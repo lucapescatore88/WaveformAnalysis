@@ -682,7 +682,7 @@ int main(int argc, char* argv[])
         results["#CorrectionFre"]->SetPointError(i,0,CorrectionFre_error);
         
         results["#CorrectionCur"]->SetPoint(i,dV,corr_current*100.);
-        double CorrectionCur_error = CorrectionFre_error + DiXT_error;  // sum of error of DiXT and FreqCorr
+        double CorrectionCur_error = TMath::Sqrt(CorrectionFre_error*CorrectionFre_error + DiXT_error*DiXT_error);  // quadratice sum of error of DiXT and FreqCorr
         results["#CorrectionCur"]->SetPointError(i,0,CorrectionCur_error);
         
         results["#Total"]->SetPoint(i,dV,perc_noise_peaks*100.);
