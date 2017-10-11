@@ -48,6 +48,8 @@ double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL, ofstream * val
 	}
 	cout << "VBD : " << VBD << endl;
 	if(values) (*values) << "VBD : " << VBD << endl;
+	cout << "VBD_error : " << fit->Error(0) << endl;
+	if(values) (*values) << "VBD_error : " << fit->Error(0) << endl;
 
     TPaveText * pv = new TPaveText(0.2,0.65,0.4,0.74,"brNDC");
     pv->AddText(Form("V_{BD} = %2.2f#pm%2.2f V",VBD,fit->Error(0)));
