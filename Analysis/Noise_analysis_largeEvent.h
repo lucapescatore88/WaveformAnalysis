@@ -47,13 +47,14 @@ using namespace std;
 
 // Amplitude of pe calculation of raw data
 
-TGraph * formatGr(TGraph * gr, int color, int fill_bkg, TString xtitle, TString ytitle, TString title = "")
+TGraph * formatGr(TGraph * gr, int color, int fill_bkg, TString xtitle, TString ytitle, TString title = "", int marker_style=8)
 {
     gr->SetLineColor(color);
     gr->SetMarkerColor(color);
     gr->SetFillColor(color);
     gr->SetFillStyle(fill_bkg);
     gr->SetMarkerSize(1);
+    gr->SetMarkerStyle(marker_style);
     if(title!="") gr->SetTitle(title);
     gr->GetYaxis()->SetTitle(ytitle);
     gr->GetXaxis()->SetTitle(xtitle);
@@ -61,12 +62,21 @@ TGraph * formatGr(TGraph * gr, int color, int fill_bkg, TString xtitle, TString 
     return gr;
 }
 
-TH1 * drawWave(TGraph * waveform, int * color, TString title, TCanvas * c, float ymax)
+TH1 * drawWave(TGraph * waveform, int * color, TString title, TCanvas * c, float ymax, double baseline_shift = 0)
 {
     c->cd();
 
     (*color) ++;
     if ((*color) > 20) (*color) = 2;
+    
+    if(baseline_shift!=0) {
+        unsigned int N = waveform->GetN();
+        for(unsigned int pt(0); pt<N; ++pt) {
+            double x, y;
+            waveform->GetPoint(pt,x,y);
+            waveform->SetPoint(pt,x,y-baseline_shift);
+        }
+    }
     
     TH1 * waveh = convertGrToH(waveform);
 
@@ -120,15 +130,30 @@ TCanvas * drawPersistence(TH2D * persistence, TCanvas * c, TString title = "")
     return c;
 }
 
-TF1 * fitLongTau2(TH2 * h, double * amp0, double * tau, double pe, const char * vol);
-TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * amp0, double * tau, double pe, const char * vol, TString title = "")
+TF1 * fitLongTau_TH2(TH2 * h, double * amp0, double * tau, double pe, const char * vol, TGraphErrors * &averageGraph);
+TF1 * fitLongTau_TGraphErrors(TGraphErrors * cleanwaves, double * amp0, double * tau, double pe, const char * vol);
+
+TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * amp0, double * tau, double pe, const char * vol, TString title = "", TGraphErrors * gavg = NULL)
+// gavg is the average clean pulse shape measured from "very clean" events
+// if gavg is not set, the long tau fit is performed directly from the 2D histogram
 {
     c->cd();
     if(title!="") persistence->SetTitle(title);
     persistence->GetYaxis()->SetTitle("Oscilloscope Signal [V]");
     persistence->GetXaxis()->SetTitle("Time [s]");
     TF1 * exp_longtau = 0;
+    TGraphErrors * average_pulse = 0;
     if(persistence->GetEntries()) {
+		
+        if(!gavg) {
+            // fit from the 2D histogram
+            exp_longtau = fitLongTau_TH2(persistence, amp0, tau, pe, vol, average_pulse);
+        } else {
+            // fit from the average waveform
+            exp_longtau = fitLongTau_TGraphErrors(gavg, amp0, tau, pe, vol);
+            average_pulse = gavg;
+        }
+		
 	    persistence->Draw("COLZ");
 	    c->SetLogz();
 	    gPad->Update();
@@ -140,8 +165,8 @@ TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * am
 		palette->SetY2NDC(0.9);
 		gPad->Modified();
 		gPad->Update();
-        
-		exp_longtau = fitLongTau2(persistence, amp0, tau, pe, vol);
+		
+		average_pulse->Draw("P+");
 		exp_longtau->Draw("SAME A*");
 	    TPaveText * pv = new TPaveText(0.6,0.65,0.75,0.74,"brNDC");
 	    pv->AddText(Form("#tau_{long} = %2.1fns",1e9*(*tau)));
@@ -283,7 +308,78 @@ Double_t FindTimeRange(Int_t ROWS_DATA, Double_t *time, Double_t *volts,
     return tmp;
 }
 
+void addPointToGraph(std::map<string,TGraph *> &g, string option, double x, double y) {
+    string opt = "";
+    if(option=="DiXT") opt = "1:DiXT";
+    else if(option=="DeXT") opt = "3:DeXT";
+    else if(option=="AP") opt = "2:AP";
+    else if(option=="Sec") opt = "4:Sec";
+    else return;
+    unsigned int N = g[opt]->GetN();
+    g[opt]->SetPoint(N,x,y);
+    return;
+}
 
+TCanvas * finalizeMapGraphs(std::map<string,TGraph *> &g, TString name, TString title, TString Xtitle, TString Ytitle, std::vector<TString> add_legend) {
+    TCanvas * c = new TCanvas(name, name);
+    double minX(1000), minY(1000), maxX(0), maxY(0);
+    for ( const auto &pair : g ) {
+        unsigned int N = pair.second->GetN();
+        for(unsigned int pt(0); pt<N; ++pt) {
+            double x,y;
+            pair.second->GetPoint(pt,x,y);
+            if(x<minX) minX = x;
+            if(y<minY) minY = y;
+            if(x>maxX) maxX = x;
+            if(y>maxY) maxY = y;
+        }
+    }
+    double distX = maxX-minX;
+    double distY = maxY-minY;
+    TH2D* frame = new TH2D("frame",title, 1000, minX-0.1*distX, maxX+0.1*distX, 1000, 0, maxY+0.1*distY);
+    frame->GetXaxis()->SetTitle(Xtitle);
+    frame->GetYaxis()->SetTitle(Ytitle);
+    frame->Draw();
+    
+    TLegend * leg = new TLegend(0.45,0.65,0.87,0.87);
+    
+    vector<string> ordered_corr_noise;
+    ordered_corr_noise.push_back("DiXT"); ordered_corr_noise.push_back("AP"); ordered_corr_noise.push_back("DeXT"); ordered_corr_noise.push_back("Sec");
+    // Draws the graphs
+    for(int i(ordered_corr_noise.size()-1); i>=0; --i) {
+        for ( auto &pair : g ) {
+            if(TString(pair.first).Contains(ordered_corr_noise[i])) {
+                int color(1), marker(7);
+                double marker_size(1);
+                if(TString(pair.first).Contains("DiXT")) color = kBlue;
+                if(TString(pair.first).Contains("DeXT")) color = kGreen+2;
+                if(TString(pair.first).Contains("AP")) color = kOrange+7;
+                if(TString(pair.first).Contains("Sec")) color = 7;
+                pair.second->SetMarkerStyle(marker);
+                pair.second->SetMarkerSize(marker_size);
+                pair.second->SetMarkerColor(color);
+                pair.second->Draw("P+");
+            }
+        }
+    }
+    // Fills the legend
+    for(unsigned int i(0); i<ordered_corr_noise.size(); ++i) {
+        for ( auto &pair : g ) {
+            if(TString(pair.first).Contains(ordered_corr_noise[i])) {
+                TString ent("");
+                if(TString(ordered_corr_noise[i]).Contains("DiXT")) ent = "Direct cross-talk";
+                if(TString(ordered_corr_noise[i]).Contains("DeXT")) ent = "Delayed cross-talk";
+                if(TString(ordered_corr_noise[i]).Contains("AP")) ent = "After-pulse";
+                if(TString(ordered_corr_noise[i]).Contains("Sec")) ent = "Secondaries";
+                TString add = "";
+                if(add_legend.size()>i) add = " "+add_legend[i];
+                leg->AddEntry(pair.second,ent+add,"p");
+            }
+        }
+    }
+    leg->Draw();
+    return c;
+}
 
 vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Thresholds> &thresholds)
 {

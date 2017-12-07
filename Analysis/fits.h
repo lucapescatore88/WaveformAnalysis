@@ -12,6 +12,7 @@
 #include "RooPolynomial.h"
 #include "RooMsgService.h"
 #include "RooFFTConvPdf.h"
+#include "RooMinuit.h"
 
 #include <TCanvas.h>
 #include <iostream>
@@ -65,60 +66,56 @@ double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL, ofstream * val
     return VBD;
 }
 
-TF1 * fitLongTau(TGraph * cleanwaves, double * amp0, double * tau, double pe, const char * vol, TCanvas * c, TFile * f=NULL) 
-{
-    TH1 * waveh = convertGrToH(cleanwaves);
-
-    c->cd();
-
-    // Fit parameters and limits to calculate slow component of the pulse
-
-    TF1 * exp_longtau = new TF1(Form("fit_longtau_%s",vol),"[0]*exp(-(x-[1])/[2])",5*ns,150*ns);	// must adapt range automatically
+TF1 * initLongTauFunction(double pe, double baseline_shift) {
+    // Init function used for long tau fit in different other functions
+    
+    TF1 * exp_longtau = new TF1("fit_longtau","[0]*exp(-(x-[1])/[2])+[3]",20*ns,150*ns);
+    // amplitude
     exp_longtau->SetParameter(0, pe*0.2);
     exp_longtau->SetParLimits(0, 0.01*pe,1.*pe);
-    //exp_longtau->SetParameter(1, 2*ns);
-    //exp_longtau->SetParLimits(1, 0*ns,5*ns);
+    // time offset
     exp_longtau->FixParameter(1, 0*ns);
-    exp_longtau->SetParameter(2, 100*ns);
-    exp_longtau->SetParLimits(2, 10*ns,300*ns);
+    // tau
+    exp_longtau->SetParameter(2, 80*ns);
+    exp_longtau->SetParLimits(2, 10*ns,200*ns);
+    //~ exp_longtau->FixParameter(2, 85*ns);
+    // baseline shift
+    exp_longtau->FixParameter(3, baseline_shift);
+    
+    return exp_longtau;    
+}
+
+TF1 * fitLongTau_TGraphErrors(TGraphErrors * cleanwaves, double * amp0, double * tau, double pe, const char * vol) 
+{
+    // Evaluate baseline - needed for a correct long tau fit
+    double baseline_shift = evaluateBaselineShift(cleanwaves);
+    
+    TF1 * exp_longtau = initLongTauFunction(pe, baseline_shift); // no baseline shift implemented
+    TString fitname = Form("%s_TGraphErrors_%s",exp_longtau->GetName(),vol);
+    exp_longtau->SetName(fitname);
         
-    waveh->Fit(Form("fit_longtau_%s",vol),"","",4*ns,180.*ns); // Fit boundaries for the slow component of the pulse
+    cleanwaves->Fit(fitname,"","",20*ns,150.*ns); // Fit boundaries for the slow component of the pulse
     
     (*amp0) = exp_longtau->GetParameter(0);
     (*tau) = exp_longtau->GetParameter(2);
-    std::cout << "Long tau = " << *tau << std::endl;
-
-    TPaveText * pv = new TPaveText(0.2,0.65,0.35,0.74,"brNDC");
-    pv->AddText(Form("#tau_{long} = %2.2e ",*tau));
-    pv->SetFillColor(kWhite);
-    pv->Draw();
-    exp_longtau->Draw("SAME");
+    std::cout << "Long tau (from average TGraphErrors) = " << *tau << std::endl;
 
     return exp_longtau;
 }
 
-TF1 * fitLongTau(TMultiGraph * cleanwaves, double * amp0, double * tau, double pe, const char * vol, TCanvas * c, TGraph * avg) 
+TF1 * fitLongTau_TMultiGraph(TMultiGraph * cleanwaves, double * amp0, double * tau, double pe, const char * vol, TCanvas * c, TGraph * avg) 
 {
-    //TCanvas * ctmp = new TCanvas(Form("LongTauFit_%s",vol));
     c->cd();
 	avg->SetMarkerStyle(7);
     avg->Draw("P+");
     //cleanwaves->Draw("P+");	// already drawn with drawWave
 
-    // Fit parameters and limits to calculate slow component of the pulse
-    TF1 * exp_longtau = new TF1(Form("fit_longtau_%s",vol),"[0]*exp(-(x-[1])/[2])",5*ns,150*ns);
-    exp_longtau->SetParameter(0, pe*0.2);
-    exp_longtau->SetParLimits(0, 0.01*pe,1.*pe);
-    //exp_longtau->SetParameter(1, 2*ns);
-    //exp_longtau->SetParLimits(1, 0*ns,5*ns);
-    exp_longtau->FixParameter(1, 0*ns);
-    //~ exp_longtau->SetParameter(2, 50*ns);
-    //~ exp_longtau->SetParLimits(2, 30*ns,70*ns);
-    exp_longtau->SetParameter(2, 80*ns);
-    exp_longtau->SetParLimits(2, 10*ns,200*ns);
+    TF1 * exp_longtau = initLongTauFunction(pe, 0); // no baseline shift implemented
+    TString fitname = Form("%s_TMultiGraph_%s",exp_longtau->GetName(),vol);
+    exp_longtau->SetName(fitname);
     
     cout << "Using " << cleanwaves->GetListOfGraphs()->GetSize() << " curves for long tau fit." << endl;     
-    cleanwaves->Fit(Form("fit_longtau_%s",vol),"","",5*ns,150*ns); // Fit boundaries for the slow component of the pulse
+    cleanwaves->Fit(fitname,"","",20*ns,150*ns); // Fit boundaries for the slow component of the pulse
     (*amp0) = exp_longtau->GetParameter(0);
     (*tau) = exp_longtau->GetParameter(2);
     std::cout << "Long tau = " << *tau << std::endl;
@@ -135,38 +132,25 @@ TF1 * fitLongTau(TMultiGraph * cleanwaves, double * amp0, double * tau, double p
 }
 
 // second version for fitting the persistence 2D histogram
-TF1 * fitLongTau2(TH2 * h, double * amp0, double * tau, double pe, const char * vol) 
+TF1 * fitLongTau_TH2(TH2 * h, double * amp0, double * tau, double pe, const char * vol, TGraphErrors * &averageGraph) 
 {
-	TGraphErrors * averageGraph = average2Dhist(h);
+    double baseline_shift(0);
+	averageGraph = average2Dhist(h,baseline_shift);
     averageGraph->SetName(Form("average_clean_%s",vol));
-    //averageGraph->Draw("p same");
     
-    // Fit parameters and limits to calculate slow component of the pulse
-    //~ TF1 * exp_longtau = new TF1(Form("fit2_longtau_%s",vol),"[0]*exp(-x/[1])",0.,180.*ns);	// must adapt range automatically
-    //~ exp_longtau->SetParameter(0,pe*0.2);
-    //~ exp_longtau->SetParLimits(0,0.01*pe,1.*pe);
-    //~ exp_longtau->SetParameter(1,  80*ns);
-    //~ exp_longtau->SetParLimits(1,10*ns,200*ns); 
+    TF1 * exp_longtau = initLongTauFunction(pe, baseline_shift);
+    TString fitname = Form("%s_TH2_%s",exp_longtau->GetName(),vol);
+    exp_longtau->SetName(fitname);
     
-    TF1 * exp_longtau = new TF1(Form("fit2_longtau_%s",vol),"[0]*exp(-(x-[1])/[2])",5*ns,150*ns);
-    exp_longtau->SetParameter(0, pe*0.2);
-    exp_longtau->SetParLimits(0, 0.01*pe,1.*pe);
-    //exp_longtau->SetParameter(1, 2*ns);
-    //exp_longtau->SetParLimits(1, 0*ns,5*ns);
-    exp_longtau->FixParameter(1, 0*ns);
-    exp_longtau->SetParameter(2, 80*ns);
-    exp_longtau->SetParLimits(2, 10*ns,200*ns);
-        
-    averageGraph->Fit(Form("fit2_longtau_%s",vol),"","",5*ns,150.*ns); // Fit boundaries for the slow component of the pulse
+    averageGraph->Fit(fitname,"","",20*ns,150.*ns); // Fit boundaries for the slow component of the pulse
     (*amp0) = exp_longtau->GetParameter(0);
-    //(*tau) = exp_longtau->GetParameter(1);
     (*tau) = exp_longtau->GetParameter(2);
     std::cout << "Long tau (from 2D histogram) = " << *tau << std::endl;
 
     return exp_longtau;
 }
 
-
+    // Original setting was 4ns,180ns and 30ns,100ns for QA
 TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char * vol, TCanvas * c, TFile * f=NULL) 
 {
     // Fit parameters and limits to calculate AP recharge
@@ -174,9 +158,9 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
     TCanvas * cAPfit = new TCanvas();
     APtime->Draw("AP*");
     // function for fit is the exponential increase from the pixel recovery + long component of the pulse (exponential decrease)
-    TF1 * exp = new TF1(Form("exp_%s",vol),"[0]*(1 - exp(-(x-[5])/[1])) + [2]*exp(-(x-[4])/[3])",4*ns,180 * ns);
+    TF1 * exp = new TF1(Form("exp_%s",vol),"[0]*(1 - exp(-(x-[5])/[1])) + [2]*exp(-(x-[4])/[3])",20*ns,180 * ns); // draw curve range
     //exp->SetParameter(0,pe);
-    //exp->SetParLimits(0,0.2*pe,10*pe);    
+    //exp->SetParLimits(0,0.2*pe,10*pe);
     exp->FixParameter(0,pe);  
     exp->SetParameter(1,50*ns);
     exp->SetParLimits(1,5*ns,150*ns);
@@ -184,9 +168,11 @@ TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char *
     //exp->SetParLimits(2,0.,1.);
     exp->FixParameter(3,tau);
     exp->FixParameter(4,0*ns);	// found to be zero so we fix it
-    exp->FixParameter(5,0*ns);	// found to be zero so we fix it
+//    exp->FixParameter(5,3*ns);	// found to be zero so we fix it QA was 0
+    exp->SetParameter(5,3*ns); 
+    exp->SetParLimits(5,0*ns,10*ns);
 
-    APtime->Fit(Form("exp_%s",vol),"","",30*ns,100*ns);
+    APtime->Fit(Form("exp_%s",vol),"","",20*ns,150*ns);
     //exp->Draw("same");
     //cAPfit->Write(TString("Fit")+APtime->GetName());
 
@@ -268,6 +254,7 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
 	double startAmp = TMath::Exp(expo1->GetParameter(0));
 	double startLambda = expo1->GetParameter(1);
 	
+	//cout << timeDist->GetName() << " " << startAmp << " " << startLambda << endl;
 	// RooFit boundaries and variables
 	double maxRooFit = tree->GetMaximum("time");
 	double minRooFit = tree->GetMinimum("time");
@@ -276,7 +263,7 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
 	RooDataSet* data = new RooDataSet("data","data",RooArgSet(time),RooFit::Import(*tree));
 	
 	//make the Signal model -- exponential decay PDF
-	RooRealVar lambda("lambda","Lambda [Hz]",1.2*startLambda,0.8*startLambda);
+	RooRealVar lambda("lambda","Lambda [Hz]",startLambda,1.2*startLambda,0.8*startLambda);
 	RooExponential SigModel("SigModel","Exponential decay PDF",time,lambda);
 	//~ RooExponential ExpModel("ExpModel","Exponential decay PDF",time,lambda);
 	//~ RooRealVar mg("meangauss","meangauss",0,0,maxTime);
@@ -293,8 +280,27 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
 	
 	RooAddPdf *model = new RooAddPdf("model","Sig + Bkg models", RooArgList(SigModel, BkgModel), RooArgList(Nsig,Nbkg));
 	
+	// RooFit printing mode:
+	RooMsgService::instance().setGlobalKillBelow(RooFit::FATAL);
+	RooMsgService::instance().setStreamStatus(1,false);
+	// Normalize log likelihood
+	RooAbsReal * nll = model->createNLL(*data, RooFit::Extended());
+	double nll_init_val = nll->getVal(nll->getVariables());
+	RooFormulaVar * nll_norm = 0;
+	if(nll_init_val > 0) nll_norm = new RooFormulaVar("nll_norm", ("@0-" + to_string(nll_init_val)).c_str(), RooArgList(*nll));
+	else nll_norm = new RooFormulaVar("nll_norm", ("@0+" + to_string(-1*nll_init_val)).c_str(), RooArgList(*nll));
+	//RooFormulaVar * nll_norm = new RooFormulaVar("nll_norm", ("@0-" + to_string(nll_init_val)).c_str(), *nll);
+	cout << "Normalized log likelihood:  " << nll_init_val << " " << nll_norm->getVal(nll_norm->getVariables()) << endl;
+	RooAbsReal * nll_toFit = nll_norm;
+	RooMinuit m(*nll_toFit);
+	//RooMinuit m(*nll_norm);
+	m.setPrintLevel(-1);
+	m.setWarnLevel(-1);
+	m.migrad() ;
+	m.hesse() ;
+	
 	//Fit the model to data
-	model->fitTo(*data, RooFit::Extended());
+	//model->fitTo(*data, RooFit::Extended(),RooFit::PrintLevel(-1000));
 
 	//Plot result of fit
 	RooPlot* frame = time.frame(RooFit::Title(tree->GetTitle()));
@@ -330,13 +336,14 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
     return new_fit;
 }
 
-double fitSimple1D(TH1 * h) {
+double fitSimple1D(TH1 * h, double& error) {
 	TCanvas  * c = new TCanvas();
 	double pos_maxi = h->GetBinCenter(h->GetMaximumBin());
     double around   = 0.1*pos_maxi;
     TF1 * f1 = new TF1("f1","gaus",pos_maxi-around,pos_maxi+around);
     h->Fit("f1","RQ");
     double mean = f1->GetParameter(1);
+    error = f1->GetParError(1);
     h->SetTitle(Form("%s (<1PE>=%.2fmV.ns, <Charge>=%.2fmV.ns)",h->GetTitle(),mean*1e12,h->GetMean()*1e12));
     delete f1, c;
     return mean;

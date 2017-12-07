@@ -3,16 +3,21 @@
 //  Modified by Luca Pescatore, luca.pescatore@cern.ch on 28/06/2017
 //  Modified by Olivier Girard, olivier.girard@cern.ch on 07-08/2017
 //
- 
+
+#include <TSpectrum.h>
+#include <TPaveStats.h>
 #include "Noise_analysis_largeEvent.h"
 #include "Thresholds.h"
 #include "fits.h"
+#include "lhcbStyle.h"
 
 using namespace std;
 
 int main(int argc, char* argv[]) 
 {
-    gROOT->ProcessLine(".x Analysis/lhcbStyle.C");
+
+    //gROOT->ProcessLine(".x Analysis/lhcbStyle.C");
+
     gStyle->SetOptStat(0);
     
     // Get paremeters from the command line
@@ -31,11 +36,10 @@ int main(int argc, char* argv[])
     vector <Thresholds> thrs;
     vector <TString> vol_folders = readSetupFile(&setupFile,&data_size,thrs);
     const int vol_size = vol_folders.size();
-    
     TFile * ifile =  TFile::Open(TString(globalArgs.data_folder)+"/oscilloscope_out.root");
     
     // Define output objects
-    
+
     map<string, TGraphErrors *>  results { 
         {"#DiXT",          new TGraphErrors()},
         {"#DeXT",          new TGraphErrors()},
@@ -45,7 +49,8 @@ int main(int argc, char* argv[])
         {"#SecPeaks",      new TGraphErrors()},
         {"#SecPeaksDiXT",  new TGraphErrors()},
         {"#SecPeaksDel",   new TGraphErrors()},
-        {"Charge",         new TGraphErrors()},
+        {"1PE-Charge",     new TGraphErrors()},
+        {"Mean-Charge",    new TGraphErrors()},
         {"#Double",        new TGraphErrors()},
         {"#CorrectionFre", new TGraphErrors()},
         {"#CorrectionCur", new TGraphErrors()} };
@@ -112,6 +117,8 @@ int main(int argc, char* argv[])
     cout << "\n\n-----> Noise analysis *** " << endl;
     
     TGraph * waveform = NULL;
+    TH1 * hist = NULL;                  // TSpectrum method
+    TSpectrum * s = new TSpectrum();    // TSpectrum method
     hfile->cd();
     
     //for (int i = vol_size-1; i < vol_size; i++) // Test on highest and more noisy voltage
@@ -149,19 +156,20 @@ int main(int argc, char* argv[])
             {"DiXT", new TCanvas(Form("DiXT_%s_%dwaveforms",vol,maxNwaveforms), Form("Direct cross-talk #DeltaV = %2.2f V",dV))},
             {"DeXT", new TCanvas(Form("DeXT_%s_%dwaveforms",vol,maxNwaveforms), Form("Delayed cross-talk #DeltaV = %2.2f V",dV))},
             {"AP",   new TCanvas(Form("AP_%s_%dwaveforms",vol,maxNwaveforms), Form("After-pulse #DeltaV = %2.2f V",dV))},
-            {"clean",new TCanvas(Form("Clean_%s_%dwaveforms",vol,maxNwaveforms), Form("Clean #DeltaV = %2.2f V",dV))}
+            {"clean",new TCanvas(Form("Clean_%s_%dwaveforms",vol,maxNwaveforms), Form("Clean #DeltaV = %2.2f V",dV))},
+	    {"APtime",new TCanvas(Form("AP_%s",vol), Form("After-pulse #DeltaV = %2.2f V",dV))}
         };
         
         TMultiGraph * forfit    = new TMultiGraph("multigraph_for_fit","multigraph_for_fit");  
         TGraph * Expfit_AP      = new TGraph();
-        TGraph * cleanforfit    = NULL;
+        TGraphErrors * cleanforfit    = NULL;
         map<string,TH1D*> graphs {
            {"AP_arrivaltime",   new TH1D(Form("AP_arrival_times_%s",vol),"After-pulse arrival times", 140, 0, 0.2e-6)},
            {"DeXT_arrivaltime", new TH1D(Form("DeXT_arrival_times_%s",vol),"Delayed cross-talk arrival times", 140, 0, 0.2e-6)},
            {"Npeaks",           new TH1D(Form("N_peaks_%s",vol),"Number of noise peaks when not clean", 50, 0, 50)},
            {"NpeaksDiXT",       new TH1D(Form("N_peaks_DiXT_%s",vol),"Number of noise peaks when direct DiXT", 50, 0, 50)},
            {"NpeaksDel",        new TH1D(Form("N_peaks_Delayed_%s",vol),"Number of noise peaks when delayed noise", 50, 0, 50)},
-           {"Charge",           new TH1D(Form("Charge_%s",vol),"Charge of all peaks", 1000, 0., ns*100*pe)}
+           {"Charge",           new TH1D(Form("Charge_%s",vol),"Charge of waveforms", 1000, 0., ns*100*pe)}
         };
         // Canvas for time distribution fits
         TCanvas * timeDistAP   = new TCanvas(Form("canv_AP_arrival_times_%s",vol), "After-pulse arrival times");
@@ -187,6 +195,10 @@ int main(int argc, char* argv[])
         TH2D * persistence_DeXT  = NULL;
         TH2D * persistence_AP    = NULL;
         
+        // Amplitude vs arrival time graph (DiXT, DeXT, AP, Secondaries and not classified)
+        map<string,TGraph *> gAmp_vs_Time { {"1:DiXT", new TGraph()}, {"3:DeXT", new TGraph()},
+			{"2:AP",   new TGraph()}, {"4:Sec",  new TGraph()} };
+        
         double hmin, hmax, vmin, vmax;
         // Setup input tree
         TTree * tree = NULL;
@@ -202,12 +214,16 @@ int main(int argc, char* argv[])
             hmin = tree->GetMinimum("Times");
             hmax = tree->GetMaximum("Times");
             int Nv = int(((tree->GetMaximum("Amps")-tree->GetMinimum("Amps"))/bin_size)+0.5);
+            int NvPE = int(((1.5*pe-tree->GetMinimum("Amps"))/bin_size)+0.5);
             vmin = tree->GetMinimum("Amps");
             vmax = tree->GetMaximum("Amps");
-            persistence_clean = new TH2D("Clean_persistence","Clean waveforms", Nh, hmin, hmax, Nv, vmin,vmax);
+            //~ persistence_clean = new TH2D("Clean_persistence","Clean waveforms", Nh, hmin, hmax, Nv, vmin,vmax);
+            persistence_clean = new TH2D("Clean_persistence","Clean waveforms", Nh, hmin, hmax, NvPE, vmin,1.5*pe);
             persistence_DiXT  = new TH2D("DiXT_persistence","Direct cross-talk", Nh, hmin, hmax, Nv, vmin,vmax);
-            persistence_DeXT  = new TH2D("DeXT_persistence","Delayed cross-talk", Nh, hmin, hmax, Nv, vmin,vmax);
-            persistence_AP    = new TH2D("AP_persistence","After-pulse", Nh, hmin, hmax, Nv, vmin,vmax);
+            //~ persistence_DeXT  = new TH2D("DeXT_persistence","Delayed cross-talk", Nh, hmin, hmax, Nv, vmin,vmax);
+            persistence_DeXT  = new TH2D("DeXT_persistence","Delayed cross-talk", Nh, hmin, hmax, NvPE, vmin,1.5*pe);
+            //~ persistence_AP    = new TH2D("AP_persistence","After-pulse", Nh, hmin, hmax, Nv, vmin,vmax);
+            persistence_AP    = new TH2D("AP_persistence","After-pulse", Nh, hmin, hmax, NvPE, vmin,1.5*pe);
         }
         hfile->cd();
     
@@ -260,6 +276,57 @@ int main(int argc, char* argv[])
             double min_thrs = !(DiXT_thr<DeXT_thr)?DeXT_thr:DiXT_thr;
             min_thrs = !(min_thrs<AP_thr)?AP_thr:min_thrs;
             
+            bool done = false;
+            bool veryclean = true;
+            double lastPulseT = -5*ns;	// used to apply an analysis dead time after each pulse (to avoid noise and ringing)
+                                        // this is used to ensure a certain hysteresis (dead time also works)
+                                        // set to neg value such that it works also for the DiXT region 
+            double deadTime = cthrs.del_xtalk_minT * ns;	// deadtime set to min delay time of DeXT (optimised to avoid ringing)
+            
+            
+// ---------------------------------------------------------------------
+// --------------------- TSpectrum peak detection ----------------------
+            //~ // Search for peaks with TSpectrum method
+            //~ // Peak detection using TSpectrum
+            //~ // need a TH1
+            //~ hist = createHist_and_computePulseIntegral(npts,time,volts,pulse_integral,baseline_shift);
+            //~ vector<double> time_peak, amp_peak;
+            //~ int npeaks = 0;
+            //~ 
+            //~ double max_val = hist->GetMaximum();
+            //~ 
+            //~ if(max_val>min_thrs) {
+                //~ 
+                //~ //TH1 * hist = convertGrToH(waveform);
+                //~ // Search( TH1 , sigma [estimated] , "" , threshold [wrt max of TH1] )
+                //~ s->Search(hist,0.01,"",min_thrs/max_val);
+                //~ //TFile * outtest = new TFile("tspectrum_test.root","RECREATE");
+                //~ //hist->Write();
+                //~ //outtest->Close();
+                //~ //double x;
+                //~ //cin >> x;
+                //~ 
+                //~ npeaks = s->GetNPeaks();
+                //~ double * xpeak = s->GetPositionX();
+                //~ double * ypeak = s->GetPositionY();
+                //~ for(unsigned int peak(0); peak<npeaks; ++peak) {
+                    //~ int bin_num = hist->FindBin(xpeak[peak]);
+                    //~ double max_y(0);
+                    //~ double max_x(xpeak[peak]);
+                    //~ for(int b(-4); b<=4; ++b) {    // gets the position and amplitude of the peaks more precisely
+                        //~ if(hist->GetBinContent(bin_num+b) > max_y) {
+                            //~ max_y = hist->GetBinContent(bin_num+b);
+                            //~ max_x = hist->GetBinCenter(bin_num+b);
+                        //~ }
+                    //~ }
+                    //~ amp_peak.push_back(max_y);
+                    //~ time_peak.push_back(max_x);
+                //~ }
+            //~ }
+            //~ delete hist;
+            
+// ---------------------------------------------------------------------
+// ------------------------ Baseline evaluation ------------------------
             double dt = time[1] - time[0];
             // Evaluate baseline - needed for a correct integral computation
             unsigned int bsl_npts(0);
@@ -271,40 +338,44 @@ int main(int argc, char* argv[])
             }
             if(bsl_npts) baseline_shift = baseline_shift/bsl_npts;
             else baseline_shift = 0;
-                
-            bool done = false;
-            bool veryclean = true;
-            double lastPulseT = 0;	// used to apply an analysis dead time after each pulse (to avoid noise and ringing)
-            //double deadTime = 5*ns;	// this is a dead time for the analysis (not of the detector)
-            double deadTime = cthrs.del_xtalk_minT * ns;	// deadtime set to min delay time of DeXT (optimised to avoid ringing)
-            //for (int row = 2; row < npts-2; row++) 
-            for (int row = bsl_npts; row < npts-2; row++) // loop start when time[row] = 0ns
-            {
+            
+// ---------------------------------------------------------------------
+// ------------------- Loop over the detected peaks --------------------
+
+            for (int row = bsl_npts; row < npts-2; row++) { // loop start when time[row] = 0ns
                 double curT = time[row];
-                double curV = volts[row];
+                double curV = volts[row];  
                 
                 // Compute pulse integral as the sum of area of trapezoids
                 //if(curV-baseline_shift>0) pulse_integral += 0.5 * dt *(curV+volts[row-1] - 2*baseline_shift);
                 pulse_integral += 0.5 * dt *(curV+volts[row-1] - 2*baseline_shift);
     
                 // Skip if not on a maximum
-                if(!( curV > volts[row-2] && curV > volts[row+2] && curV > min_thrs)) continue;
+                // Skip if dead time condition is not fulfilled
+                if(!( ((curV > volts[row-2] && curV > volts[row+2])|(curV > volts[row-3] && curV > volts[row+3])) && curV > min_thrs && curT > lastPulseT+deadTime )) continue;
                 else if (done) { done = false; continue; }
                 done = true;
                 
+            //~ for(unsigned int peak(0); peak<npeaks; ++peak) { // loop over the peaks detected by TSpectrum
+                //~ double curT = time_peak[peak];
+                //~ double curV = amp_peak[peak];
+                
                 if ( curT > 2*ns && curV > 0.4*pe) veryclean = false;
     
-                // Direct x-talk: in 0-2 ns window and V > direct th.
+                // Direct x-talk: in 0-1 ns window and V > direct th.
                 if( curT <= cthrs.dir_xtalk_maxT * ns && curV > DiXT_thr) 
                 {
                     direct_xtalk_pulse++;
                     //noise_peaks_cnt++; // Don't count peak as it is over the DCR
                     delayedPulse dixt;
-                    dixt.time = 0;
+                    //~ dixt.time = 0;
+                    dixt.time = curT;
                     dixt.volt = curV;
                     dixt.type = "DiXT";
                     delayedPulses.push_back(dixt);
                     corr_noise_tot_amp += curV;
+                    lastPulseT = curT;
+                    veryclean = false; // added
                 }
                 
                 // we look for delayed peaks (AP, DeXT)
@@ -321,9 +392,11 @@ int main(int argc, char* argv[])
                     delayedPulses.push_back(dext);
                     lastPulseT = curT;
                     corr_noise_tot_amp += curV;
+                    veryclean = false; // added
                 }
                 // After-pulse: time larger 2ns and V > AP th
-                else if ( curT > cthrs.AP_minT * ns && curV > AP_thr && curT > lastPulseT+deadTime ) 
+                else if ( curT > cthrs.AP_minT * ns && curV > AP_thr && curT > lastPulseT+deadTime) 
+		//else if ( curT > 4 * ns && curV > DeXT_thr && curT <20*ns) 
                 {	// if it's not a DeXT, it might be an AP
                     after_pulse++;
                     noise_peaks_cnt++;
@@ -336,6 +409,7 @@ int main(int argc, char* argv[])
                     delayedPulses.push_back(ap);
                     lastPulseT = curT;
                     corr_noise_tot_amp += curV;
+                    veryclean = false; // added
                 }
                 else if ( curT <= lastPulseT+deadTime ) continue; // skip pulses that might be due to ringing
                 
@@ -345,11 +419,12 @@ int main(int argc, char* argv[])
             
             //------------------ Clean event ---------------------------
             if( direct_xtalk_pulse + xtalk_pulse + after_pulse == 0 ) 
-            {	
+            {
                 sprintf(Category,"Clean");
     
                 // Get only very clean waves and make an average for long tau fit.
                 if(veryclean) cleanforfit = average(cleanforfit, waveform);
+                //~ cleanforfit = average(cleanforfit, waveform);
     
                 if(nsaved < maxNwaveforms) // Max 20 clean graphs on the plot
                 {
@@ -365,6 +440,8 @@ int main(int argc, char* argv[])
             {
                 counter_notclean++;
                 tot_primary_noise_peaks_cnt++;
+                
+                addPointToGraph(gAmp_vs_Time, delayedPulses[0].type, delayedPulses[0].time, delayedPulses[0].volt/pe);
                 
                 // They are categroized as DiXT, DeXT or AP
                 if (direct_xtalk_pulse > 0)  // Primary correlated noise is DiXT
@@ -416,7 +493,7 @@ int main(int argc, char* argv[])
                     TString graph_title = Form("After pulse #DeltaV = %2.2f V",dV);
                     if(nsaved_AP < maxNwaveforms) 
                     {
-                        drawWave(waveform, &color["AP"], graph_title, canv["AP"], 1.5*pe);
+                        drawWave(waveform, &color["AP"], graph_title, canv["AP"], 1.5*pe, baseline_shift);
                         nsaved_AP++;
                     }
                     fillPersistence(persistence_AP, waveform);
@@ -424,7 +501,7 @@ int main(int argc, char* argv[])
                     graphs["AP_arrivaltime"]->Fill(delayedPulses[0].time);
                     tAP = delayedPulses[0].time;
                     timeAP->Fill();
-                    Expfit_AP->SetPoint(Expfit_AP->GetN(),delayedPulses[0].time,delayedPulses[0].volt);
+                    Expfit_AP->SetPoint(Expfit_AP->GetN(),delayedPulses[0].time,delayedPulses[0].volt-baseline_shift);
     
                     graphs["Npeaks"]->Fill(noise_peaks_cnt);
                     graphs["NpeaksDel"]->Fill(noise_peaks_cnt-1);
@@ -438,6 +515,14 @@ int main(int argc, char* argv[])
                 // In this case, we look for a primary correlated noise
                 tot_primary_noise_peaks_cnt++;
                 // The additional correlated noise are considered as secondary
+                
+                // Sort the delayed pulses in arrival time order
+                std::sort(delayedPulses.begin(), delayedPulses.end());
+                // Fills the Amp vs arrival time graphs
+                addPointToGraph(gAmp_vs_Time, delayedPulses[0].type, delayedPulses[0].time, delayedPulses[0].volt/pe);
+                // The latest delayed noises are secondaries
+                for(unsigned int pulse(1); pulse<delayedPulses.size(); ++pulse)
+                    addPointToGraph(gAmp_vs_Time, "Sec", delayedPulses[pulse].time, delayedPulses[pulse].volt/pe);
                 
                 // Priority is given to DiXT because we are certain that it is a primary correlated noise
                 if (direct_xtalk_pulse > 0)
@@ -470,7 +555,6 @@ int main(int argc, char* argv[])
                     // looks for the first delayed pulse and consider it as primary
                     // the later coming delayed pulse(s) is secondary
                     // we don't consider DiXT on secondary pulses (approximation)
-                    std::sort(delayedPulses.begin(), delayedPulses.end());
                     
                     if( delayedPulses[0].type == "DeXT" ) 
                     {
@@ -533,12 +617,13 @@ int main(int argc, char* argv[])
                     ////////////////////////////////////////////////////
                     
                 }
+                
             } // end of more than one primary correlated noise
     
             tot_noise_peaks_cnt += noise_peaks_cnt;
             graphs["Charge"]->Fill(pulse_integral);
             if(globalArgs.save_all) otree->Fill();
-            //~ otree->Fill();
+            otree->Fill();
             
             //~ cout << Form("single event:   #NoisePeaks = %i , #DiXT = %i , #DeXT = %i , #AP = %i , #2ndOrder = %i ",
                 //~ (int)noise_peaks_cnt,
@@ -567,27 +652,29 @@ int main(int argc, char* argv[])
         timeFitResult roofitDeXTTimeDist;
         // Correction for DCR influence on delayed noise pulses
         // replace 0 to 1 in order to enable DCR correction
-        if(0 && graphs["AP_arrivaltime"]->GetEntries()) 
+        if(1 && graphs["AP_arrivaltime"]->GetEntries()) 
         {
             cout << "\n\n-----> AP time distribution fit ***" << endl;
             //~ fitAPTimeDist   = fitTimeDist(graphs["AP_arrivaltime"], timeDistAP, cthrs.AP_minT*ns, hmax);
             //~ contribution_DCR_to_AP = ((hmax-cthrs.AP_minT*ns)/graphs["AP_arrivaltime"]->GetBinWidth(1))*fitAPTimeDist->GetParameter(2);
             roofitAPTimeDist = roofitTimeDist(graphs["AP_arrivaltime"], timeAP, timeDistAP, cthrs.AP_minT*ns, hmax);
             contribution_DCR_to_AP = roofitAPTimeDist.Nbkg;
+contribution_DCR_to_AP = 0;	// Contribution of DCR sometimes wrong estimated, set to zero for QA H2017 for automated measurements!
             cout << Form("-----> DCR contribution to AP: %2.1f pulses (%2.1f%s)",contribution_DCR_to_AP, 100*contribution_DCR_to_AP/timeAP->GetEntries(), "%") << endl;
         }
-        if(0 && graphs["DeXT_arrivaltime"]->GetEntries()) 
+        if(1 && graphs["DeXT_arrivaltime"]->GetEntries()) 
         {
             cout << "\n\n-----> DeXT time distribution fit ***" << endl;
             //~ fitDeXTTimeDist = fitTimeDist(graphs["DeXT_arrivaltime"], timeDistDeXT, cthrs.dir_xtalk_maxT*ns, hmax);
             //~ contribution_DCR_to_DeXT = ((hmax-cthrs.dir_xtalk_maxT*ns)/graphs["DeXT_arrivaltime"]->GetBinWidth(1))*fitDeXTTimeDist->GetParameter(2);
             roofitDeXTTimeDist = roofitTimeDist(graphs["DeXT_arrivaltime"], timeDeXT, timeDistDeXT, cthrs.dir_xtalk_maxT*ns, hmax);
             contribution_DCR_to_DeXT = roofitDeXTTimeDist.Nbkg;
+contribution_DCR_to_DeXT = 0;	// Contribution of DCR sometimes wrong estimated, set to zero for QA H2017 for automated measurements!
             cout << Form("-----> DCR contribution to DeXT: %2.1f pulses (%2.1f%s)",contribution_DCR_to_DeXT, 100*contribution_DCR_to_DeXT/timeDeXT->GetEntries(), "%") << endl;
         }
         
         double tot_DCR_contribution = contribution_DCR_to_DeXT + contribution_DCR_to_AP;
-        double fraction_delayed_primary = delayed_pulse_when_primary/(delayed_pulse_when_primary + delayed_pulse_when_secondary);	// fraction of delayed primary noise vs all delayed pulses
+        //double fraction_delayed_primary = delayed_pulse_when_primary/(delayed_pulse_when_primary + delayed_pulse_when_secondary);	// fraction of delayed primary noise vs all delayed pulses
         
         double tot_npeaks = tot_noise_peaks_cnt + events_cnt;
         //double perc_noise_peaks = (tot_primary_noise_peaks_cnt - fraction_delayed_primary*tot_DCR_contribution) / (float)events_cnt;	// number of delayed pulses (DeXT+AP) additional to the DCR on which we trigger
@@ -612,17 +699,16 @@ int main(int argc, char* argv[])
         // total contribution of correlated noise in a threshold-based frequency measurement (used for PDE)
         // it must be calculated using thresholds similar to the frequency measurement: single threshold level (f.ex. thrs=0.6)
         double corr_frequency = (tot_noise_peaks_cnt - tot_DCR_contribution)/(float)(tot_npeaks - tot_DCR_contribution);
-        //double corr_frequency = (tot_noise_peaks_cnt - tot_DCR_contribution)/(float)events_cnt;
         // it is the probability that a pulse chosen randomly is actually a delayed correlated pulse (the DCR is subtracted)
         
         // total contribution of correlated noise in a gain measurement (used for PDE)
         // it must be calculated using thresholds similar to the gain measurement: single threshold level (f.ex. thrs=0.6)
         double corr_current = corr_frequency + perc_DiXT;	// same as frequency measurement (delayed pulses) add contribution from DiXT
-        //~ double corr_current = corr_noise_tot_amp/(corr_noise_tot_amp + events_cnt*pe);
         
         // Compute the correction for current with the charge of pulses
         // Get average charge of 1 pe clean event
-        double clean_pulse_integral = fitSimple1D(graphs["Charge"]);
+        double clean_pulse_integral_error(0);
+        double clean_pulse_integral = fitSimple1D(graphs["Charge"], clean_pulse_integral_error);
         //~ double corr_current = 1-(clean_pulse_integral/graphs["Charge"]->GetMean()); // This does not subtract DCR !!!
     
         cout << "\nTotal number of events: " << events_cnt << endl;
@@ -647,10 +733,16 @@ int main(int argc, char* argv[])
         // Final persistence plots
         double amp0, tau;
         cout << "\n\n-----> Long tau fit ***" << endl;
-        TF1 * exp_longtau = drawPersistenceWithLongTauFit(persistence_clean,canv_persistence["clean"], &amp0, &tau, pe, vol,Form("Clean waveforms #DeltaV = %2.2f V",dV));
+        //~ TF1 * exp_longtau = drawPersistenceWithLongTauFit(persistence_clean,canv_persistence["clean"], &amp0, &tau, pe, vol,Form("Clean waveforms #DeltaV = %2.2f V, Slow component amp = %2.4f",dV,amp0));
+        TF1 * exp_longtau = drawPersistenceWithLongTauFit(persistence_clean,canv_persistence["clean"], &amp0, &tau, pe, vol,Form("Clean waveforms #DeltaV = %2.2f V, Slow component amp = %2.4f",dV,amp0), cleanforfit);
         drawPersistence(persistence_DiXT,canv_persistence["DiXT"],Form("Direct cross-talk #DeltaV = %2.2f V",dV));
         drawPersistence(persistence_DeXT,canv_persistence["DeXT"],Form("Delayed cross-talk #DeltaV = %2.2f V",dV));
         drawPersistence(persistence_AP,canv_persistence["AP"],Form("After-pulse #DeltaV = %2.2f V",dV));
+        
+        // Final amp vs Time graphs
+        vector<TString> add;
+        add.push_back(Form("(%2.1f%%)",perc_DiXT*100)); add.push_back(Form("(%2.1f%%)",perc_AP*100)); add.push_back(Form("(%2.1f%%)",perc_DeXT*100)); add.push_back(Form("(%2.1f%%)",perc_Sec*100)); 
+        TCanvas * c_amp_vs_time = finalizeMapGraphs(gAmp_vs_Time, "Amp_vs_Time_graph", "Pulse amplitude versus arrival time", "Arrival time [s]", "Pulse amplitude [PE]", add);
         
         //~ // Fits for long tau and recovery time
         //~ cout << "\n\n-----> Long tau fit ***" << endl;
@@ -660,6 +752,10 @@ int main(int argc, char* argv[])
         
         cout << "\n\n-----> After pulse fit ***" << endl;
         TF1 * exp_AP = fitAPTau(Expfit_AP, amp0, tau, pe, vol, canv["AP"]);
+        canv["APtime"]->cd();
+        formatGr(Expfit_AP, kBlue, 0, "Arrival time [s]", "Amplitude [V]", "After-pulse amplitude vs arrival time");
+        Expfit_AP->Draw("AP");
+        
         
         cout << "Building final results" << endl;
     
@@ -674,8 +770,10 @@ int main(int argc, char* argv[])
         results["#DeXT"]->SetPoint(i,dV,perc_DeXT*100.);
         results["#DeXT"]->SetPointError(i,0.,TMath::Sqrt(perc_DeXT*(1.-perc_DeXT)/events_cnt)*100.);
         
-        results["Charge"]->SetPoint(i,dV,graphs["Charge"]->GetMean());
-        results["Charge"]->SetPointError(i,0.,graphs["Charge"]->GetMeanError());
+        results["1PE-Charge"]->SetPoint(i,dV,clean_pulse_integral*1e3*1e9);
+        results["1PE-Charge"]->SetPointError(i,0.,clean_pulse_integral_error*1e3*1e9);
+        results["Mean-Charge"]->SetPoint(i,dV,graphs["Charge"]->GetMean()*1e3*1e9);
+        results["Mean-Charge"]->SetPointError(i,0.,graphs["Charge"]->GetMeanError()*1e3*1e9);
         
         results["#CorrectionFre"]->SetPoint(i,dV,corr_frequency*100.);
         double CorrectionFre_error = 100*TMath::Sqrt(corr_frequency*(1-corr_frequency)/(float)(tot_npeaks - tot_DCR_contribution));
@@ -714,6 +812,8 @@ int main(int argc, char* argv[])
         objects_to_save.push_back(exp_longtau);
         //objects_to_save.push_back(exp_longtau2);
         objects_to_save.push_back(exp_AP);
+        //objects_to_save.push_back(Expfit_AP);
+        objects_to_save.push_back(c_amp_vs_time);
     
         TString dirname = "pulse_shape_" + TString(vol);
         for(auto obj : objects_to_save) 
@@ -844,8 +944,23 @@ int main(int argc, char* argv[])
     cfinal->SetTitle("SecondaryPeaks");
     cfinal->Write();
     
-    formatGr(results["Charge"], kGreen+2, 0, "#DeltaV [V]", "<Charge per counted peak>");
-    results["Charge"]->Draw("AP");
+    formatGr(results["1PE-Charge"], kGreen+2, 0, "#DeltaV [V]", "Waveform charge [mV#timesns]");
+    formatGr(results["Mean-Charge"], kBlue, 0, "#DeltaV [V]", "Waveform charge [mV#timesns]");
+    results["Mean-Charge"]->Draw("APL");
+    results["Mean-Charge"]->SetTitle("Waveform charge");
+    results["1PE-Charge"]->Draw("PL+");
+    TF1 * linfit = new TF1("lin_vbd_fit","[0]*(x-[1])");
+    linfit->SetParName(0,"Slope");
+    linfit->SetParName(1,"V_{BD}");
+    results["1PE-Charge"]->Fit("lin_vbd_fit","Q+");
+    gStyle->SetOptFit(0011);
+    TPaveStats * ps = (TPaveStats *)results["1PE-Charge"]->GetListOfFunctions()->FindObject("stats");
+    ps->SetX1NDC(0.15); ps->SetX2NDC(0.35); ps->SetY1NDC(0.6); ps->SetY2NDC(0.7);
+    leg = new TLegend(0.15,0.75,0.45,0.87);
+    leg->AddEntry(results["1PE-Charge"],"1PE charge","lp");
+    leg->AddEntry(results["Mean-Charge"],"Mean waveform charge","lp");
+    leg->SetFillColor(kWhite);
+    leg->Draw();
     cfinal->Print(globalArgs.res_folder+"Charge.pdf");
     cfinal->SetName("Charge");
     cfinal->SetTitle("Charge");

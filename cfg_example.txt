@@ -1,23 +1,19 @@
-####Comments
-### Default threshold values:
-### Rej_t: 4[ns], AP_th: 0.38[pe], Delay_th: 0.85[pe], Imm_th: 1.17[pe]
-### If especial thresholds are needed use V/th, otherwise default values are used
+# default thresholds
+DefThrs :: AP_minT=25 :: DeXT_minT=2 :: DiXT_maxT=2 :: AP_thrs=0.5 :: DiXT_thrs=1.17 :: DeXT_thrs=0.8
 
-## Example:
-## V/th || 37.0V ||
-## Rej_t: 4.0, AP_th: 0.5, Delay_th: 0.85, Imm_th: 1.35
-## V || 37.5V ||
-
+# voltage definition and thresholds(optional, if not specified, we take the default thresholds)
 V || 54.0V ||
 V || 54.5V ||
 V || 55.0V ||
 V || 55.5V ||
+V || 56.0V ||
 V || 56.5V ||
 V || 57.0V ||
 V || 57.5V ||
 V || 58.0V ||
 V || 58.5V ||
+V || 59.0V ||
+#V || 59.5V ||
+V || 60.0V ||
 
-
-Files at each voltage || 2000 ||
-#Files at each voltage || 100 ||
+Files at each voltage || 20000 ||

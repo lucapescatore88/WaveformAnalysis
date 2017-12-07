@@ -18,41 +18,44 @@ for ev in t :
     if opts.volt is not None and abs(ev.Vbias - opts.volt) > 0.1: continue
     
     T, A = [],[]
-    #~ halfDT = (ev.Times[1] - ev.Times[0])/2.
-    #~ hist = R.TH1F("waveform","waveform", ev.NsampPerEv,ev.Times[0]-halfDT,ev.Times[ev.NsampPerEv-1]+halfDT)   
-    #~ max_val = 0
-    #~ min_thrs = min(ev.DiXT_thr,min(ev.DeXT_thr,ev.AP_thr))
+    halfDT = (ev.Times[1] - ev.Times[0])/2.
+    hist = R.TH1F("waveform","waveform", ev.NsampPerEv,ev.Times[0]-halfDT,ev.Times[ev.NsampPerEv-1]+halfDT)   
+    max_val = 0
+    min_thrs = min(ev.DiXT_thr,min(ev.DeXT_thr,ev.AP_thr))
+    artificial_offset = 0.00
     for i in range(int(ev.NsampPerEv)):
         T.append(ev.Times[i])
         A.append(ev.Amps[i])
-        #~ hist.SetBinContent(i,ev.Amps[i])
-        #~ if max_val < ev.Amps[i]:
-            #~ max_val = ev.Amps[i]
+        hist.SetBinContent(i,ev.Amps[i]+artificial_offset)
+        if max_val < ev.Amps[i]:
+            max_val = ev.Amps[i]
     gr = R.TGraph(ev.NsampPerEv,array('d',T),array('d',A))
+    gr.GetXaxis().SetTitle("Time [s]")
+    gr.GetYaxis().SetTitle("Signal [V]")
     
-    gr.SetMaximum(1.5*ev.pe)
+    gr.SetMaximum(1.5*ev.pe+artificial_offset)
     gr.SetLineColor(1)
     gr.SetLineWidth(1)
     gr.Draw("APL")
     c.SetGrid(1)
     
-    #~ hist.Draw("same L")
-    #~ hist.GetYaxis().SetRangeUser(-0.2*ev.pe,1.5*ev.pe)
-    #~ hist.SetStats(0)
-    #~ s = R.TSpectrum()
-    #~ sigma = 0.1
-    #~ s.Search(hist,sigma,"",min_thrs/max_val)
-    #~ 
-    #~ npeaks = s.GetNPeaks()
-    #~ xpeaks_float = s.GetPositionX()
-    #~ ypeaks_float = s.GetPositionY()
-    #~ for peak in range(npeaks):
-        #~ bin_num = hist.FindBin(xpeaks_float[peak])
-        #~ max_y = 0
-        #~ for b in range(-4,5):
-            #~ if max_y < hist.GetBinContent(bin_num+b):
-                #~ max_y = hist.GetBinContent(bin_num+b)
-        #~ print "peak", peak, " max_y =", max_y
+    hist.Draw("same L")
+    hist.GetYaxis().SetRangeUser(-0.2*ev.pe,1.5*ev.pe+artificial_offset)
+    hist.SetStats(0)
+    s = R.TSpectrum()
+    sigma = 0.01
+    s.Search(hist,sigma,"",min_thrs/max_val)
+    
+    npeaks = s.GetNPeaks()
+    xpeaks_float = s.GetPositionX()
+    ypeaks_float = s.GetPositionY()
+    for peak in range(npeaks):
+        bin_num = hist.FindBin(xpeaks_float[peak])
+        max_y = 0
+        for b in range(-4,5):
+            if max_y < hist.GetBinContent(bin_num+b):
+                max_y = hist.GetBinContent(bin_num+b)
+        print "peak", peak, " max_y =", max_y
     
     # draws the thresholds
     pe_line = R.TGraph(2,array('d',[T[0],T[-1]]),array('d',[ev.pe,ev.pe]));
