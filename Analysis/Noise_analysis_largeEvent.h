@@ -62,30 +62,23 @@ TGraph * formatGr(TGraph * gr, int color, int fill_bkg, TString xtitle, TString 
     return gr;
 }
 
-TH1 * drawWave(TGraph * waveform, int * color, TString title, TCanvas * c, float ymax, double baseline_shift = 0)
+TH1 * drawWave(TGraph * waveform, int * color, TString title, TCanvas * c, float ymax, double yscale=1, double baseline_shift=0)
 {
     c->cd();
-
+    
     (*color) ++;
-    if ((*color) > 20) (*color) = 2;
+    int col = ((*color)%50)+50;
+    //if ((*color) > 20) (*color) = 2;
     
-    if(baseline_shift!=0) {
-        unsigned int N = waveform->GetN();
-        for(unsigned int pt(0); pt<N; ++pt) {
-            double x, y;
-            waveform->GetPoint(pt,x,y);
-            waveform->SetPoint(pt,x,y-baseline_shift);
-        }
-    }
-    
-    TH1 * waveh = convertGrToH(waveform);
+    TH1 * waveh = convertGrToH(waveform, yscale, baseline_shift);
 
-    waveh->SetMaximum(1.8*ymax);
-    waveh->SetLineColor((*color));
-    waveh->SetMarkerColor((*color));
+    waveh->SetMaximum(ymax);
+    waveh->SetLineColor(col);
+    waveh->SetMarkerColor(col);
     waveh->SetMarkerSize(1);
-    waveh->SetTitle(title); 
-    waveh->GetYaxis()->SetTitle("Oscilloscope Signal [V]");
+    waveh->SetTitle(title);
+    waveh->GetYaxis()->SetTitle("Signal [V]");
+    if(yscale!=1 && yscale!=0) waveh->GetYaxis()->SetTitle("Signal [PE]");
     waveh->GetXaxis()->SetTitle("Time [s]");
     
     if((*color)==1)
@@ -98,13 +91,36 @@ TH1 * drawWave(TGraph * waveform, int * color, TString title, TCanvas * c, float
     return waveh;
 }
 
-void fillPersistence(TH2D * persistence, TGraph * waveform) {
+void drawAPfit(TCanvas * c, TF1 * fit, double yscale=1) {
+    c->cd();
+    TF1 * exp = new TF1(TString(fit->GetName())+"_scaled","[0]*(1 - exp(-(x-[5])/[1])) + [2]*exp(-(x-[4])/[3])",0,180*ns);
+    exp->SetParameter(0, fit->GetParameter(0));
+    exp->SetParameter(1, fit->GetParameter(1));
+    exp->SetParameter(2, fit->GetParameter(2));
+    exp->SetParameter(3, fit->GetParameter(3));
+    exp->SetParameter(4, fit->GetParameter(4));
+    exp->SetParameter(5, fit->GetParameter(5));
+    exp->SetRange(0*ns,180*ns);
+    if(yscale !=1 && yscale!=0) {
+        exp->SetParameter(0, fit->GetParameter(0)/yscale);
+        exp->SetParameter(2, fit->GetParameter(2)/yscale);
+    }
+    exp->SetLineColor(kBlack);
+    exp->Draw("same");
+    TPaveText * pv = new TPaveText(0.55,0.78,0.85,0.85,"brNDC");
+    pv->AddText(Form("#tau_{rec} = %2.1f#pm%2.1f ns",1e9*fit->GetParameter(1),1e9*fit->GetParError(1)));
+    pv->SetFillColor(kWhite);
+    pv->Draw();
+    return;
+}
+
+void fillPersistence(TH2D * persistence, TGraph * waveform, double yscale=1) {
 	double * xx = waveform->GetX();
 	double * yy = waveform->GetY();
 	unsigned int Npts = waveform->GetN();
-	for(unsigned int pt(0); pt<Npts; ++pt) {
-		persistence->Fill(xx[pt],yy[pt]);
-	}
+    bool yscale_enabled = (yscale!=1) && (yscale!=0);
+	if(yscale_enabled) for(unsigned int pt(0); pt<Npts; ++pt) persistence->Fill(xx[pt],yy[pt]/yscale);
+	else for(unsigned int pt(0); pt<Npts; ++pt) persistence->Fill(xx[pt],yy[pt]);
 	return;
 }
 
@@ -112,7 +128,7 @@ TCanvas * drawPersistence(TH2D * persistence, TCanvas * c, TString title = "")
 {
     c->cd();
     if(title!="") persistence->SetTitle(title);
-    persistence->GetYaxis()->SetTitle("Oscilloscope Signal [V]");
+    persistence->GetYaxis()->SetTitle("Signal [PE]");
     persistence->GetXaxis()->SetTitle("Time [s]");
     if(persistence->GetEntries()) {
 	    persistence->Draw("CONT4Z");
@@ -139,7 +155,7 @@ TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * am
 {
     c->cd();
     if(title!="") persistence->SetTitle(title);
-    persistence->GetYaxis()->SetTitle("Oscilloscope Signal [V]");
+    persistence->GetYaxis()->SetTitle("Signal [PE]");
     persistence->GetXaxis()->SetTitle("Time [s]");
     TF1 * exp_longtau = 0;
     TGraphErrors * average_pulse = 0;
@@ -168,18 +184,17 @@ TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * am
 		
 		average_pulse->Draw("P+");
 		exp_longtau->Draw("SAME A*");
-	    TPaveText * pv = new TPaveText(0.6,0.65,0.75,0.74,"brNDC");
-	    pv->AddText(Form("#tau_{long} = %2.1fns",1e9*(*tau)));
+	    TPaveText * pv = new TPaveText(0.55,0.78,0.85,0.85,"brNDC");
+	    pv->AddText(Form("#tau_{long} = %2.1f#pm%2.1f ns",1e9*(*tau),1e9*exp_longtau->GetParError(1)));
 	    pv->SetFillColor(kWhite);
 	    pv->Draw();
 	    gPad->Update();
-	    //~ pad2->Update();
 		
 	}
     return exp_longtau;
 }
 
-Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option = "root", TFile * file = NULL)
+Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, vector<double>& minmax, string option = "root", TFile * file = NULL)
 {
     TString canvas_title = "Amplitude calculation "+TString(vol_folder);
     TH1D * volt_ampl = NULL;
@@ -189,10 +204,14 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
     int nsamples;
     double times[10000];
     double amps[10000];
+    double amps_copy[10000];
     TGraph * waveform = NULL;
 	
 	double bin_size = 0.002; // bin size of amplitude histogram (PE distribution)
+	//double bin_size = 0.0002; // bin size of amplitude histogram (PE distribution)
 	double minval, maxval;
+    double xmin(1e6), xmax(0), ymin(1e6), ymax(0);
+    int nmax(0);
     if(option=="root") 
     {
         f = TFile::Open(TString(globalArgs.data_folder)+"/oscilloscope_out.root");
@@ -200,14 +219,31 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
         tree->SetBranchAddress("NsampPerEv",&nsamples);
         tree->SetBranchAddress("Amps",&amps);
         tree->SetBranchAddress("Times",&times);
-        data_size = tree->GetEntries();
+        //data_size = tree->GetEntries();
+        // data_size defined from cfg file
+        if(data_size>tree->GetEntries()) data_size = tree->GetEntries();
         // Defines amplitude max, min and bins
-        maxval = tree->GetMaximum("Amps");
-        minval = tree->GetMinimum("Amps");
+        
+        tree->GetEntry(0);
+        xmax = times[nsamples-1];
+        xmin = times[0];
+        nmax = nsamples;
+        
+        ymax = tree->GetMaximum("Amps");
+        ymin = tree->GetMinimum("Amps");
+        maxval = ymax;
+        minval = ymin;
     } else {
 		maxval = -0.05;
 		minval = 0.25;
 	}
+    
+    minmax[0] = xmin;
+    minmax[1] = xmax;
+    minmax[2] = ymin;
+    minmax[3] = ymax;
+    minmax[4] = nmax;
+    
 	volt_ampl = new TH1D(canvas_title, canvas_title, int(((maxval-minval)/bin_size)+0.5), minval,maxval);
     if(file) file->cd("Vbd_determination");
 
@@ -248,15 +284,19 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, string option 
     }
 
     // Fit the first peak distribution to get pe
+    
+    volt_ampl->GetXaxis()->SetTitle("Pulse amplitude [V]");
+    volt_ampl->GetYaxis()->SetTitle("Entries");
 
     double pos_maxi = volt_ampl->GetBinCenter(volt_ampl->GetMaximumBin());
     double around   = 0.5*pos_maxi;
     TF1 * f1 = new TF1("f1","gaus",pos_maxi-around,pos_maxi+around);
+    f1->SetLineColor(kRed);
     // TF1 *f1 = new TF1("f1","gaus",0,1.0); // Change range for fit of MPV
     // pe bigger than 0.8 wont be detected unless changed
-    volt_ampl->Fit("f1","RQ");	// fit line in red???
+    volt_ampl->Fit("f1","RQ+");
     Double_t pe_volt   = f1->GetParameter(1);
-    volt_ampl->SetTitle(globalArgs.res_folder+Form("Amplitude calculation %s, pe = %2.3f",vol_folder,pe_volt));
+    volt_ampl->SetTitle(Form("Amplitude calculation %s, <A_{pe}> = %2.3fV",vol_folder,pe_volt));
     if(option=="root") volt_ampl->Write();
     
     delete f1;
@@ -363,6 +403,8 @@ TCanvas * finalizeMapGraphs(std::map<string,TGraph *> &g, TString name, TString 
         }
     }
     // Fills the legend
+    // and copy the graphs with a larger marker to be more visible in TLegend
+    vector< TGraph* > g_copy(g.size(),0);
     for(unsigned int i(0); i<ordered_corr_noise.size(); ++i) {
         for ( auto &pair : g ) {
             if(TString(pair.first).Contains(ordered_corr_noise[i])) {
@@ -372,8 +414,18 @@ TCanvas * finalizeMapGraphs(std::map<string,TGraph *> &g, TString name, TString 
                 if(TString(ordered_corr_noise[i]).Contains("AP")) ent = "After-pulse";
                 if(TString(ordered_corr_noise[i]).Contains("Sec")) ent = "Secondaries";
                 TString add = "";
+                
+                TGraph * gcp = new TGraph();
+                gcp->SetName(TString(pair.second->GetName())+"_copy");
+                int color = pair.second->GetMarkerColor();
+                gcp->SetMarkerStyle(8);
+                gcp->SetMarkerSize(1.5);
+                gcp->SetMarkerColor(color);
+                g_copy[i] = gcp;
+                
                 if(add_legend.size()>i) add = " "+add_legend[i];
-                leg->AddEntry(pair.second,ent+add,"p");
+                //~ leg->AddEntry(pair.second,ent+add,"p");
+                leg->AddEntry(gcp,ent+add,"p");
             }
         }
     }
@@ -432,7 +484,7 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
     return vol_folders;
 }
 
-void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:aVh?")
+void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:atnVh?")
 {
     int opt = getopt(argc, argv, optString);
     if(opt == -1){
@@ -456,6 +508,12 @@ void setOptions(int argc, char* argv[], const char * optString = "d:S:o:T:aVh?")
                 break;
             case 'a':
                 globalArgs.save_all = true;
+                break;
+            case 't':
+                globalArgs.save_tree = true;
+                break;
+            case 'n':
+                globalArgs.enable_dcr = true;
                 break;
             case 'T':
                 globalArgs.fixed_thr = atof(optarg);

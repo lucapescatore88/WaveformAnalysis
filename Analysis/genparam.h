@@ -23,11 +23,13 @@ struct globalArgs_t
     const char* arg_pathToSetupFile;        /* -S option */
     TString res_folder;                     /* -o option */
     bool save_all;                          /* -a  */
+    bool save_tree;                         /* -t for event display */
+    bool enable_dcr;                        /* -n dcr correction from AP and DeXT arrival time fit */
     TString input;                          /* -I root  */
     double fixed_thr;                       /* -T root  */             
     int only_Vbd;                     		/* -V root  */             
 
-} globalArgs {" "," "," ",false,"root",-1,0};
+} globalArgs {" "," "," ",false,false,false,"root",-1,0};
 
 struct delayedPulse
 {
@@ -51,7 +53,20 @@ struct timeFitResult {
 	//TString name;
 };
 
-TH1 * convertGrToH(TGraph * gr)
+void setPoint(TGraphErrors * g, unsigned int pt, double x, double y, double ex, double ey) {
+    g->SetPoint(pt,x,y);
+    g->SetPointError(pt,ex,ey);
+    return;
+}
+
+double absoluteErrorPoisson(double abs_value, double Nev, double Ntot) {
+    if(Nev==0) return abs_value*TMath::Sqrt( 1/Ntot );
+    else if(Ntot==0) return 0;
+    else if(Nev>0 && Ntot>0) return abs_value*TMath::Sqrt( (1/Nev) + (1/Ntot) );
+    else return 0;
+}
+
+TH1 * convertGrToH(TGraph * gr, double yscale=1, double baseline_shift=0)
 {
     Double_t * xx  = gr->GetX();
     Double_t * yy = gr->GetY();
@@ -59,7 +74,12 @@ TH1 * convertGrToH(TGraph * gr)
     //TH1 * h = new TH1F(TString(gr->GetName())+"H",gr->GetTitle(),
     TH1 * h = new TH1F("","",
         gr->GetN(),xx[0]-halfDT,xx[gr->GetN()-1]+halfDT);
-    for(int i = 1; i < gr->GetN(); i++ ) h->SetBinContent(i,yy[i]);
+    bool yscale_enabled = (yscale!=1 && yscale!=0);
+    bool baseline_enabled = (baseline_shift!=0);
+    if(yscale_enabled && baseline_enabled) for(int i = 1; i < gr->GetN(); i++ ) h->SetBinContent(i,(yy[i]-baseline_shift)/yscale);
+    else if(!yscale_enabled && baseline_enabled) for(int i = 1; i < gr->GetN(); i++ ) h->SetBinContent(i,(yy[i]-baseline_shift));
+    else if(yscale_enabled && !baseline_enabled) for(int i = 1; i < gr->GetN(); i++ ) h->SetBinContent(i,yy[i]/yscale);
+    else if(!yscale_enabled && !baseline_enabled) for(int i = 1; i < gr->GetN(); i++ ) h->SetBinContent(i,yy[i]);
 
     return h;
 }
@@ -98,24 +118,24 @@ TH1 * createHist_and_computePulseIntegral(int npts, double * x, double * y, doub
     return h;
 }
 
-double computeIntegral(TGraph * g, double threshold) {
+double computeIntegral(TGraphErrors * g, double baseline, double& err_integral, double yscale=1) {
     unsigned int N = g->GetN();
     double * xx = g->GetX();
     double * yy = g->GetY();
+    double * xx_err = g->GetEX();
+    double * yy_err = g->GetEY();
+    // Y scaling
+    bool yscale_enabled = (yscale!=1) && (yscale!=0);
+    double ysc = 1;
+	if(yscale_enabled) ysc = yscale;
     double integral(0);
+    err_integral = 0;
     for(unsigned int pt(1); pt<N; ++pt) {
-        if(yy[pt]>threshold) {
-            //integral += 0.5 * (xx[pt-1]*yy[pt] - xx[pt]*yy[pt-1]);
-            //integral += 0.5 * (xx[pt]-xx[pt-1])*(yy[pt]-yy[pt-1]);
-            integral += 0.5 * (xx[pt]-xx[pt-1])*(yy[pt]+yy[pt-1]);
-        }
-        //integral += 0.5 * (xx[pt-1]*yy[pt] - xx[pt]*yy[pt-1]);
-        //integral += 0.5 * (xx[pt]-xx[pt-1])*(yy[pt]+yy[pt-1]);
-        //integral += yy[pt];
+        double incr = 0.5 * (xx[pt]-xx[pt-1]) * (yy[pt]+yy[pt-1] - 2*baseline) * (1./ysc);
+        integral += incr;
+        err_integral += ((yy_err[pt]+yy_err[pt-1])/(yy[pt]+yy[pt-1] - 2*baseline)) * incr;
     }
     return integral;
-    //return abs(integral);
-    //return g->Integral();
 }
 
 double evaluateBaselineShift(TGraphErrors * gr) {
@@ -139,13 +159,17 @@ double evaluateBaselineShift(TGraphErrors * gr) {
     return baseline_shift;
 }
 
-TGraphErrors * average(TGraphErrors * gr, TGraph * gr2)
+TGraphErrors * average(TGraphErrors * gr, TGraph * gr2, double yscale=1)
 {
     static int nevts = 0;
 
     const int npts    = gr2->GetN();
     double * x2 = gr2->GetX();
     double * y2 = gr2->GetY();
+    double y2_scaled[npts];
+    bool yscale_enabled = (yscale!=1) && (yscale!=0);
+	if(yscale_enabled) for(unsigned int pt(0); pt<npts; ++pt) y2_scaled[pt] = y2[pt]/yscale;
+	else for(unsigned int pt(0); pt<npts; ++pt) y2_scaled[pt] = y2[pt];
 
     if(!gr)
     {
@@ -157,9 +181,10 @@ TGraphErrors * average(TGraphErrors * gr, TGraph * gr2)
 			err_x[row] = 0.5*(x2[row]-x2[row-1]);
 			err_y[row] = 0;
 		}
-        TGraphErrors * grout = new TGraphErrors(npts,x2,y2, err_x,err_y);
+        TGraphErrors * grout = new TGraphErrors(npts,x2,y2_scaled, err_x,err_y);
         grout->SetName(TString(gr2->GetName())+"ForFit");
-        grout->SetMarkerStyle(7);
+        grout->SetMarkerStyle(20);
+        grout->SetMarkerSize(0.6);
         grout->SetMarkerColor(1);
         grout->SetLineColor(1);
         return grout;
@@ -176,10 +201,10 @@ TGraphErrors * average(TGraphErrors * gr, TGraph * gr2)
     for (int row = 0; row < npts; row++) 
     {
         avgx[row] = (nevts*time[row] + x2[row])/(nevts+1);
-        avgy[row] = (nevts*volts[row] + y2[row])/(nevts+1);
+        avgy[row] = (nevts*volts[row] + y2_scaled[row])/(nevts+1);
         
         avgx_err[row] = time_err[row];
-        avgy_err[row] = TMath::Sqrt(nevts/(nevts+1))*TMath::Sqrt((( (nevts*(volts_err[row]*volts_err[row] + volts[row]*volts[row])) + y2[row]*y2[row] )/(nevts+1)) - avgy[row]*avgy[row]);
+        avgy_err[row] = TMath::Sqrt(nevts/(nevts+1))*TMath::Sqrt((( (nevts*(volts_err[row]*volts_err[row] + volts[row]*volts[row])) + y2_scaled[row]*y2_scaled[row] )/(nevts+1)) - avgy[row]*avgy[row]);
     }
     nevts++;
 
@@ -218,8 +243,8 @@ TGraphErrors * average2Dhist(TH2 * h, double& baseline_shift) {
 		
 		delete projy;
 	}
-	average->SetMarkerStyle(7);
-	//~ average->SetMarkerSize(0.5);
+	average->SetMarkerStyle(20);
+	average->SetMarkerSize(0.6);
 	average->SetMarkerColor(1);
 	average->SetLineColor(1);
 	

@@ -26,7 +26,7 @@ double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL, ofstream * val
 {
     TCanvas * ca = new TCanvas("Voltage Breakdown calculation","Voltage Breakdown calculation",100,100,900,700);
     Vbias_ver->SetTitle("Voltage Breakdown calculation");
-    Vbias_ver->GetYaxis()->SetTitle("Bias Volatge [V]");
+    Vbias_ver->GetYaxis()->SetTitle("Bias volatge [V]");
     //Vbias_ver->GetYaxis()->SetTitleOffset(1.2);
     Vbias_ver->GetXaxis()->SetTitle("Mean peak amplitude [V]");
     Vbias_ver->Draw("AP*");
@@ -52,8 +52,11 @@ double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL, ofstream * val
 	cout << "VBD_error : " << fit->Error(0) << endl;
 	if(values) (*values) << "VBD_error : " << fit->Error(0) << endl;
 
-    TPaveText * pv = new TPaveText(0.2,0.65,0.4,0.74,"brNDC");
+    TPaveText * pv = new TPaveText(0.2,0.65,0.5,0.75,"brNDC");
     pv->AddText(Form("V_{BD} = %2.2f#pm%2.2f V",VBD,fit->Error(0)));
+    double inv_slope = 1e3/m;
+    double inv_slope_err = inv_slope*(fit->Error(1)/m);
+    pv->AddText(Form("Amp./#DeltaV = %2.2f#pm%2.2f mV/V",inv_slope,inv_slope_err));
     pv->SetFillColor(kWhite);
     pv->Draw();
     ca->Print(globalArgs.res_folder+"Breakdown_voltage.pdf");
@@ -82,6 +85,9 @@ TF1 * initLongTauFunction(double pe, double baseline_shift) {
     // baseline shift
     exp_longtau->FixParameter(3, baseline_shift);
     
+    exp_longtau->SetLineColor(kRed);
+    exp_longtau->SetLineWidth(2);
+    
     return exp_longtau;    
 }
 
@@ -99,7 +105,7 @@ TF1 * fitLongTau_TGraphErrors(TGraphErrors * cleanwaves, double * amp0, double *
     (*amp0) = exp_longtau->GetParameter(0);
     (*tau) = exp_longtau->GetParameter(2);
     std::cout << "Long tau (from average TGraphErrors) = " << *tau << std::endl;
-
+    
     return exp_longtau;
 }
 
@@ -151,92 +157,141 @@ TF1 * fitLongTau_TH2(TH2 * h, double * amp0, double * tau, double pe, const char
 }
 
     // Original setting was 4ns,180ns and 30ns,100ns for QA
-TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char * vol, TCanvas * c, TFile * f=NULL) 
+TF1 * fitAPTau(TGraph * APtime, double amp0, double tau, double pe, const char * vol, double * recovery, double minTime=0, double maxTime=0) 
 {
     // Fit parameters and limits to calculate AP recharge
-
-    TCanvas * cAPfit = new TCanvas();
-    APtime->Draw("AP*");
+    double min_for_fit(0), max_for_fit(0);
+	min_for_fit = 20*ns;
+	max_for_fit = 150*ns;
+    if(minTime) min_for_fit = minTime;
+    if(maxTime) max_for_fit = maxTime;
+    
     // function for fit is the exponential increase from the pixel recovery + long component of the pulse (exponential decrease)
-    TF1 * exp = new TF1(Form("exp_%s",vol),"[0]*(1 - exp(-(x-[5])/[1])) + [2]*exp(-(x-[4])/[3])",20*ns,180 * ns); // draw curve range
+    TF1 * exp = new TF1(Form("exp_%s",vol),"[0]*(1 - exp(-(x-[5])/[1])) + [2]*exp(-(x-[4])/[3])",min_for_fit,max_for_fit); // draw curve range
     //exp->SetParameter(0,pe);
     //exp->SetParLimits(0,0.2*pe,10*pe);
     exp->FixParameter(0,pe);  
     exp->SetParameter(1,50*ns);
-    exp->SetParLimits(1,5*ns,150*ns);
+    exp->SetParLimits(1,5*ns,120*ns);
     exp->FixParameter(2,amp0);
     //exp->SetParLimits(2,0.,1.);
     exp->FixParameter(3,tau);
     exp->FixParameter(4,0*ns);	// found to be zero so we fix it
 //    exp->FixParameter(5,3*ns);	// found to be zero so we fix it QA was 0
-    exp->SetParameter(5,3*ns); 
+    exp->SetParameter(5,3*ns);
     exp->SetParLimits(5,0*ns,10*ns);
+    
+    exp->SetLineColor(kRed);
 
-    APtime->Fit(Form("exp_%s",vol),"","",20*ns,150*ns);
-    //exp->Draw("same");
-    //cAPfit->Write(TString("Fit")+APtime->GetName());
-
-    c->cd();
-    TPaveText * pv = new TPaveText(0.6,0.8,0.85,0.85,"brNDC");
-    pv->AddText(Form("Recovery time = %2.1f#pm%2.1f ns",1e9*exp->GetParameter(1),1e9*exp->GetParError(1)));
-    pv->SetFillColor(kWhite);
-    pv->Draw();
-    exp->Draw("SAME");
-
+    APtime->Fit(Form("exp_%s",vol),"","",min_for_fit,max_for_fit);
+    (*recovery) = exp->GetParameter(1);
     return exp;
 }
 
-TF1 * fitTimeDist(TH1 * timeDist, TCanvas * c, double minTime, double maxTime) {
-	TF1 * timeDistFit = NULL;
-	if(!timeDist->GetEntries()) return timeDistFit;
+TGraph * splitAPTau(TGraph * APtime, double amp0, double tau, double pe) 
+{
+    unsigned int N = APtime->GetN();
+    TGraph * splitG = new TGraph(N);
+    splitG->SetName(TString(APtime->GetName())+"_split");
+    for(unsigned int pt(0); pt<N; ++pt) {
+        double x(0), y(0);
+        APtime->GetPoint(pt,x,y);
+        //~ y = y - amp0*TMath::Exp((-1.0*x)/tau);
+        y = 1 - (y - amp0*TMath::Exp((-1.0*x)/tau))/pe;
+        splitG->SetPoint(pt,x,y);
+    }
+    return splitG;
+}
+
+void fitTimeDist(TH1 * timeDist, TCanvas * c, timeFitResult& new_fit, const char * type, double minTime=0, double maxTime=0) {
+	if(!timeDist->GetEntries()) return;
 	// timeDist is expected to contain 
 	// - a exponential decrease (physical distribution of time of arrivals)
 	// - a constant plateau due to DCR
-	
-	c->cd();
-	// Total fit range:
+    
+    // Pre-fit to get starting parameters
+    // Total fit range:
 	double minFit = timeDist->GetBinLowEdge(timeDist->GetMaximumBin());
 	double maxFit = timeDist->GetBinLowEdge(timeDist->FindLastBinAbove()) + timeDist->GetBinWidth(timeDist->FindLastBinAbove());
 	double expFitMax = minFit + ((maxFit-minFit)/3.0);
 	// Fits first with an exponential
 	TF1 * expo1 = new TF1(Form("expo1_%s",timeDist->GetName()), "expo", minFit,expFitMax);
 	timeDist->Fit(Form("expo1_%s",timeDist->GetName()),"QN","",minFit,expFitMax);
-	
 	// Uses the fit results to fit the entire distribution
 	double startAmp = TMath::Exp(expo1->GetParameter(0));
-	double startTau = -1.0/(expo1->GetParameter(1));
-	double startCst = 0;
-	// averages the last bin contents to get an estimate of the constant
-	unsigned int startBin = 0.6*(timeDist->FindLastBinAbove()-timeDist->FindFirstBinAbove()) + timeDist->FindFirstBinAbove();
-	unsigned int count(0);
-	for( ; startBin<timeDist->FindLastBinAbove(); ++startBin) {
-		startCst += timeDist->GetBinContent(startBin+1);
-		++count;
-	}
-	startCst = startCst/count;
+	double startTau = 1.0/TMath::Abs(expo1->GetParameter(1));
+    double startCst = 0;
 	
-	TF1 * expo_and_dcr = new TF1(Form("fit_%s",timeDist->GetName()), "[0]*exp(-(x-[3])/[1]) + [2]", minFit,maxFit);
+	c->cd();
+    timeDist->Draw("E0");
+    timeDist->GetXaxis()->SetTitle("Time [s]");
+    timeDist->GetYaxis()->SetTitle("dN_{"+TString(type)+"}/dt");
+    c->SetLogy();
+	// Total fit range:
+    double min_for_fit(0), max_for_fit(0);
+	min_for_fit = minFit;
+	max_for_fit = maxFit;
+    if(minTime) min_for_fit = minTime;
+    if(maxTime) max_for_fit = maxTime;
+	
+	TF1 * expo_and_dcr = new TF1(Form("fit_%s",timeDist->GetName()), "[0]*exp(-x/[1]) + [2]", min_for_fit,max_for_fit);
+    expo_and_dcr->SetLineColor(kRed);
 	expo_and_dcr->SetParameter(0,startAmp);
+    expo_and_dcr->SetParLimits(0,0,timeDist->GetEntries());
 	expo_and_dcr->SetParameter(1,startTau);
+    expo_and_dcr->SetParLimits(1,1*ns,120*ns);
 	expo_and_dcr->SetParameter(2,startCst);
-	expo_and_dcr->SetParameter(3,0);
-	timeDist->Fit(Form("fit_%s",timeDist->GetName()),"","",minFit,maxFit);
+    expo_and_dcr->SetParLimits(2,0,timeDist->GetEntries());
+	timeDist->Fit(Form("fit_%s",timeDist->GetName()),"Q+","",min_for_fit,max_for_fit);
+    
+    // *********** fit results ************
+	double result_tau = expo_and_dcr->GetParameter(1);
+    double result_tau_error = expo_and_dcr->GetParError(1);
+	double result_Nsig = (result_tau*expo_and_dcr->GetParameter(0)*( TMath::Exp(-min_for_fit/result_tau) - TMath::Exp(-max_for_fit/result_tau) ));
+    double result_Nsig_error = ( (result_Nsig/result_tau) + result_tau*expo_and_dcr->GetParameter(0)*( max_for_fit*TMath::Exp(-max_for_fit/result_tau) - min_for_fit*TMath::Exp(-min_for_fit/result_tau) ) ) * max_for_fit;
+    result_Nsig = result_Nsig/timeDist->GetBinWidth(1);
+    result_Nsig_error = result_Nsig_error/timeDist->GetBinWidth(1);
+	double result_Nbkg = ((max_for_fit-min_for_fit)/timeDist->GetBinWidth(1))*expo_and_dcr->GetParameter(2);
+    double result_Nbkg_error = (expo_and_dcr->GetParError(2)/expo_and_dcr->GetParameter(2))*result_Nbkg;
 	
-	TPaveText * pv = new TPaveText(0.4,0.67,0.85,0.85,"brNDC");
-    pv->AddText(Form("Characteristic time = %2.1fns",1e9*expo_and_dcr->GetParameter(1)));
-    double dcr_contribution = ((maxTime-minTime)/timeDist->GetBinWidth(1))*expo_and_dcr->GetParameter(2);
-    pv->AddText(Form("DCR contribution = %2.1f pulses (%2.1f%s)",dcr_contribution, 100*dcr_contribution/timeDist->GetEntries(), "%"));
+	new_fit.tau = result_tau;	new_fit.tau_error = result_tau_error;
+	new_fit.Nsig = result_Nsig;	new_fit.Nsig_error = result_Nsig_error;
+	new_fit.Nbkg = result_Nbkg;	new_fit.Nbkg_error = result_Nbkg_error;
+	new_fit.chi2 = expo_and_dcr->GetChisquare();
+    
+    cout << " *********** Fit results: ************" << endl;
+	cout << "tau:\t" << result_tau << " pm " << result_tau_error << endl;
+	cout << "Nsig:\t" << result_Nsig << " pm " << result_Nsig_error << endl;
+	cout << "Nbkg:\t" << result_Nbkg << " pm " << result_Nbkg_error << endl;
+	cout << "Tot entries:\t" << timeDist->GetEntries() << endl;
+	cout << "Entries used for fit:\t" << result_Nsig+result_Nbkg << endl;
+    
+    TF1 * expo_comp = new TF1(Form("expo_component_%s",timeDist->GetName()), "[0]*exp(-x/[1])", min_for_fit,max_for_fit);
+    expo_comp->SetParameter(0,expo_and_dcr->GetParameter(0));
+    expo_comp->SetParameter(1,result_tau);
+    expo_comp->SetLineColor(kRed);
+    expo_comp->SetLineStyle(2);
+    expo_comp->Draw("same");
+    TF1 * dcr_comp = new TF1(Form("dcr_component_%s",timeDist->GetName()), "[0]", min_for_fit,max_for_fit);
+    dcr_comp->SetParameter(0,expo_and_dcr->GetParameter(2));
+    dcr_comp->SetLineColor(kRed);
+    dcr_comp->SetLineStyle(2);
+    dcr_comp->Draw("same");
+    
+    
+    TPaveText * pv = new TPaveText(0.6,0.70,0.88,0.88,"brNDC");
+    pv->AddText(Form("#tau_{%s} = %2.1f#pm%2.1f ns",type,1e9*result_tau,1e9*result_tau_error));
+    pv->AddText("# DCR pulses =");
+    pv->AddText(Form("%2.1f#pm%2.1f (%2.1f%s)",result_Nbkg,result_Nbkg_error,100*(result_Nbkg/(result_Nsig+result_Nbkg)),"%"));
     pv->SetFillColor(kWhite);
     pv->Draw();
-    expo_and_dcr->Draw("SAME");
     
-    return expo_and_dcr;
+    return;
 }
 
-timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double minTime, double maxTime) {
-	timeFitResult new_fit;
+void roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, timeFitResult& new_fit, const char * type, double minTime=0, double maxTime=0) {
 	double entries = tree->GetEntries();
-	if(!timeDist->GetEntries() || !entries) return new_fit;
+	if(!timeDist->GetEntries() || !entries) return;
 	// timeDist is expected to contain 
 	// - a exponential decrease (physical distribution of time of arrivals)
 	// - a constant plateau due to DCR
@@ -258,12 +313,21 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
 	// RooFit boundaries and variables
 	double maxRooFit = tree->GetMaximum("time");
 	double minRooFit = tree->GetMinimum("time");
-	RooRealVar time("time","Time",minRooFit,maxRooFit,"s");
+    // Fit range
+    double min_for_fit(minRooFit), max_for_fit(maxRooFit);
+    if(minTime) min_for_fit = minTime;
+    if(maxTime) max_for_fit = maxTime;
+	
+    //~ RooRealVar time("time","Time",minRooFit,maxRooFit,"s");
+    RooRealVar time("time","Time",0,maxRooFit,"s");
+    
 	//Generate the dataset
 	RooDataSet* data = new RooDataSet("data","data",RooArgSet(time),RooFit::Import(*tree));
+    time.setRange("fit_range",min_for_fit,max_for_fit);
 	
 	//make the Signal model -- exponential decay PDF
-	RooRealVar lambda("lambda","Lambda [Hz]",startLambda,1.2*startLambda,0.8*startLambda);
+	RooRealVar lambda("lambda","Lambda [Hz]",startLambda,1.5*startLambda,0.5*startLambda);
+	//~ RooRealVar lambda("lambda","Lambda [Hz]",-4.2e7,1.5*-4.2e7,0.5*-4.2e7);
 	RooExponential SigModel("SigModel","Exponential decay PDF",time,lambda);
 	//~ RooExponential ExpModel("ExpModel","Exponential decay PDF",time,lambda);
 	//~ RooRealVar mg("meangauss","meangauss",0,0,maxTime);
@@ -272,19 +336,17 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
 	//~ RooFFTConvPdf SigModel("SigModel","Exponential decay convoluted with Gaussian",time,ExpModel,gauss);
 	
 	//make the Background model -- constant bkg due to DCR
-	RooPolynomial BkgModel("BkgModel","Constant background PDF",time);
+	RooPolynomial BkgModel("BkgModel","Constant background PDF",time,RooArgList(),1);
 	
 	//Yields variables
-	RooRealVar Nsig("Nsig","Number of signal event",int(entries*0.5),0,entries);
-	RooRealVar Nbkg("Nbkg","Number of background event",int(entries*0.5),0,entries);
+    double fraction_sig = 1.0;  // assumed fraction of signal (1 = 100% when no DCR is present)
+	RooRealVar Nsig("Nsig","Number of signal event",int(entries*fraction_sig),0,entries);
+	RooRealVar Nbkg("Nbkg","Number of background event",int(entries*(1-fraction_sig)),0,entries);
 	
 	RooAddPdf *model = new RooAddPdf("model","Sig + Bkg models", RooArgList(SigModel, BkgModel), RooArgList(Nsig,Nbkg));
 	
-	// RooFit printing mode:
-	RooMsgService::instance().setGlobalKillBelow(RooFit::FATAL);
-	RooMsgService::instance().setStreamStatus(1,false);
 	// Normalize log likelihood
-	RooAbsReal * nll = model->createNLL(*data, RooFit::Extended());
+	/*RooAbsReal * nll = model->createNLL(*data, RooFit::Extended());
 	double nll_init_val = nll->getVal(nll->getVariables());
 	RooFormulaVar * nll_norm = 0;
 	if(nll_init_val > 0) nll_norm = new RooFormulaVar("nll_norm", ("@0-" + to_string(nll_init_val)).c_str(), RooArgList(*nll));
@@ -297,13 +359,14 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
 	m.setPrintLevel(-1);
 	m.setWarnLevel(-1);
 	m.migrad() ;
-	m.hesse() ;
+	m.hesse() ;*/
 	
 	//Fit the model to data
-	//model->fitTo(*data, RooFit::Extended(),RooFit::PrintLevel(-1000));
+	model->fitTo(*data, RooFit::Extended(), RooFit::Range("fit_range"), RooFit::PrintLevel(-1));
 
 	//Plot result of fit
 	RooPlot* frame = time.frame(RooFit::Title(tree->GetTitle()));
+    //frame->SetAxisRange(0,maxRooFit,"X");
 	data->plotOn(frame);
 	model->plotOn(frame);
 	model->plotOn(frame,RooFit::Components(BkgModel),RooFit::LineStyle(kDashed),RooFit::LineColor(kBlue));
@@ -327,25 +390,50 @@ timeFitResult roofitTimeDist(TH1 * timeDist, TTree * tree, TCanvas * c, double m
 	//~ cout << "Nbkg:\t" << result_Nbkg << " pm " << result_Nbkg_error << endl;
 	//~ cout << "Tot entries:\t" << entries << endl;
 	
-	TPaveText * pv = new TPaveText(0.4,0.67,0.85,0.85,"brNDC");
-    pv->AddText(Form("Characteristic time = (%2.1f#pm%2.1f) ns",1e9*result_tau,1e9*result_tau_error));
-    pv->AddText(Form("DCR contribution = (%2.1f#pm%2.1f) pulses (%2.1f%s)",result_Nbkg,result_Nbkg_error,100*(result_Nbkg/entries),"%"));
+	TPaveText * pv = new TPaveText(0.6,0.70,0.88,0.88,"brNDC");
+    pv->AddText(Form("#tau_{%s} = %2.1f#pm%2.1f ns",type,1e9*result_tau,1e9*result_tau_error));
+    pv->AddText("# DCR pulses =");
+    pv->AddText(Form("%2.1f#pm%2.1f (%2.1f%s)",result_Nbkg,result_Nbkg_error,100*(result_Nbkg/entries),"%"));
     pv->SetFillColor(kWhite);
     pv->Draw();
     
-    return new_fit;
+    return;
 }
 
 double fitSimple1D(TH1 * h, double& error) {
 	TCanvas  * c = new TCanvas();
+    // first, rough fit over large window
 	double pos_maxi = h->GetBinCenter(h->GetMaximumBin());
-    double around   = 0.1*pos_maxi;
-    TF1 * f1 = new TF1("f1","gaus",pos_maxi-around,pos_maxi+around);
-    h->Fit("f1","RQ");
+    double maxi = h->GetMaximum();
+    unsigned int bin_min(h->GetMaximumBin()), bin_max(h->GetMaximumBin());
+    double fraction = 0.5;
+    bool not_reach = true;
+    while(bin_min>1 && not_reach) {
+        --bin_min;
+        double bin_content = h->GetBinContent(bin_min);
+        if(bin_content<fraction*maxi) not_reach = false;
+    }
+    not_reach = true;
+    while(bin_max<h->GetNbinsX() && not_reach) {
+        ++bin_max;
+        double bin_content = h->GetBinContent(bin_max);
+        if(bin_content<fraction*maxi) not_reach = false;
+    }
+    double minf = h->GetBinCenter(bin_min);
+    double maxf = h->GetBinCenter(bin_max);
+    TF1 * f1 = new TF1("f1","gaus",minf,maxf);
+    h->Fit("f1","RQN");
     double mean = f1->GetParameter(1);
-    error = f1->GetParError(1);
+    double sigma = f1->GetParameter(2);
+    delete f1;
+    // second, fit in restricted region around the peak (+/- 1 sigma)
+    TF1 * f2 = new TF1("f2","gaus",mean-sigma,mean+sigma);
+    f2->SetLineColor(kRed);
+    h->Fit("f2","RQ+");
+    mean = f2->GetParameter(1);
+    error = f2->GetParError(1);
     h->SetTitle(Form("%s (<1PE>=%.2fmV.ns, <Charge>=%.2fmV.ns)",h->GetTitle(),mean*1e12,h->GetMean()*1e12));
-    delete f1, c;
+    delete f2, c;
     return mean;
 }
 
