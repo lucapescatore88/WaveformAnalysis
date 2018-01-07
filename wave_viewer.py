@@ -19,6 +19,7 @@ c = R.TCanvas()
 for ev in t :
 
     if opts.volt is not None and abs(ev.Vbias - opts.volt) > 0.1: continue
+    #~ if ev.NAP<1: continue
     
     T, A = [],[]
     halfDT = (ev.Times[1] - ev.Times[0])/2.

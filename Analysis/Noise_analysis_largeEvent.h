@@ -196,15 +196,16 @@ TF1 * drawPersistenceWithLongTauFit(TH2D * persistence, TCanvas * c, double * am
 
 Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, vector<double>& minmax, string option = "root", TFile * file = NULL)
 {
+	cout << "Amplitude calculation for dV = " << vol_folder << endl;
     TString canvas_title = "Amplitude calculation "+TString(vol_folder);
     TH1D * volt_ampl = NULL;
 
     TFile * f = NULL;
     TTree * tree = NULL;
     int nsamples;
-    double times[10000];
-    double amps[10000];
-    double amps_copy[10000];
+    double times[20002];
+    double amps[20002];
+    double amps_copy[20002];
     TGraph * waveform = NULL;
 	
 	double bin_size = 0.002; // bin size of amplitude histogram (PE distribution)
@@ -273,7 +274,7 @@ Double_t Amplitude_calc(const char * vol_folder, Int_t data_size, vector<double>
         {
             // 1 nanosecond window for first pulse
             if (time[pt] < 0.) continue ; 
-            else if (time[pt] > 1. * ns) break;
+            else if (time[pt] > fall_time) break;
             if (maxV < volts[pt]) maxV = volts[pt];
         }
 
@@ -456,6 +457,7 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
         
         // Threshold defaulf values
         sscanf(searchString, "DefThrs :: AP_minT=%lf :: DeXT_minT=%lf :: DiXT_maxT=%lf :: AP_thrs=%lf :: DiXT_thrs=%lf :: DeXT_thrs=%lf", &def_AP_minT, &def_DeXT_minT, &def_DiXT_maxT, &def_AP_thrs, &def_DiXT_thrs, &def_DeXT_thrs);
+        if(fall_time>def_DiXT_maxT) fall_time = def_DiXT_maxT;
         
         //Find the voltages and thresholds
         char thres_config[256] = "";

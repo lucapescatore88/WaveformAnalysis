@@ -56,7 +56,13 @@ int main(int argc, char* argv[])
         {"Mean-Charge-Corrected", new TGraphErrors()},
         {"#Double",               new TGraphErrors()},
         {"#CorrectionFre",        new TGraphErrors()},
-        {"#CorrectionCur",        new TGraphErrors()} };
+        {"#CorrectionCur",        new TGraphErrors()},
+        {"TauRec",                new TGraphErrors()},
+        {"T_0",                   new TGraphErrors()},
+        {"TauLong",               new TGraphErrors()},
+        {"AmpRatio",              new TGraphErrors()},
+        {"TauAP",                 new TGraphErrors()},
+        {"TauDeXT",               new TGraphErrors()} };
     
     Char_t Category[15];
     Double_t dV;
@@ -119,7 +125,8 @@ int main(int argc, char* argv[])
     
     cout << "\n\n-----> Voltage Breakdown fit" << endl;
     
-    double VBD = fitBreakdownVoltage(Vbias_vs_pe, hfile, values_for_pde);
+    double VBD_error;
+    double VBD = fitBreakdownVoltage(Vbias_vs_pe, VBD_error, hfile, values_for_pde);
     
     if(globalArgs.only_Vbd) {hfile->Close(); values_for_pde->close(); return 0;}	// only Vbd measurement, abort other measurements
     
@@ -127,6 +134,8 @@ int main(int argc, char* argv[])
     /////////////////
     // Loop over all Voltages measured
     /////////////////
+
+    ofstream * values_for_sipm_model = new ofstream(globalArgs.res_folder + "values_for_sipm_model.txt",ofstream::out);
     
     cout << "\n\n-----> Noise analysis *** " << endl;
     
@@ -177,9 +186,11 @@ int main(int argc, char* argv[])
         //TMultiGraph * forfit    = new TMultiGraph("multigraph_for_fit","multigraph_for_fit");  
         TGraph * Expfit_AP      = new TGraph();
         TGraphErrors * cleanforfit    = NULL;
+        //~ unsigned int nb = Xmax[i]/(1.5*ns);
+        unsigned int nb = 120;
         map<string,TH1D*> graphs {
-           {"AP_arrivaltime",   new TH1D(Form("AP_arrival_times_%s",vol),"After-pulse arrival times", 120, 0, 0.18e-6)},
-           {"DeXT_arrivaltime", new TH1D(Form("DeXT_arrival_times_%s",vol),"Delayed cross-talk arrival times", 120, 0, 0.18e-6)},
+           {"AP_arrivaltime",   new TH1D(Form("AP_arrival_times_%s",vol),"After-pulse arrival times", nb, 0, Xmax[i])},
+           {"DeXT_arrivaltime", new TH1D(Form("DeXT_arrival_times_%s",vol),"Delayed cross-talk arrival times", nb, 0, Xmax[i])},
            {"Npeaks",           new TH1D(Form("N_peaks_%s",vol),"Number of noise peaks when not clean", 50, 0, 50)},
            {"NpeaksDiXT",       new TH1D(Form("N_peaks_DiXT_%s",vol),"Number of noise peaks when direct DiXT", 50, 0, 50)},
            {"NpeaksDel",        new TH1D(Form("N_peaks_Delayed_%s",vol),"Number of noise peaks when delayed noise", 50, 0, 50)},
@@ -285,9 +296,10 @@ int main(int argc, char* argv[])
             
             bool done = false;
             bool veryclean = true;
-            double lastPulseT = -5*ns;	// used to apply an analysis dead time after each pulse (to avoid noise and ringing)
-                                        // this is used to ensure a certain hysteresis (dead time also works)
-                                        // set to neg value such that it works also for the DiXT region 
+            // used to apply an analysis dead time after each pulse (to avoid noise and ringing)
+            // this is used to ensure a certain hysteresis (dead time also works)
+            // set to neg value such that it works also for the DiXT region 
+            double lastPulseT = -1*cthrs.del_xtalk_minT * ns - 5*ns;
             double deadTime = cthrs.del_xtalk_minT * ns;	// deadtime set to min delay time of DeXT (optimised to avoid ringing)
             
             
@@ -340,7 +352,7 @@ int main(int argc, char* argv[])
             bool zero_reached(false);
             while(!zero_reached) {
                 baseline_shift += volts[bsl_npts];
-                if(time[bsl_npts]>=-1*dt) zero_reached = true;
+                if(time[bsl_npts]>=rise_time) zero_reached = true;
                 bsl_npts++;
             }
             if(bsl_npts) baseline_shift = baseline_shift/bsl_npts;
@@ -367,8 +379,9 @@ int main(int argc, char* argv[])
                 //~ double curT = time_peak[peak];
                 //~ double curV = amp_peak[peak];
                 
-                if ( curT > 2*ns && curV > 0.4*pe) veryclean = false;
-    
+                if ( curT > 2*ns && curV > 0.4*pe) veryclean = false;   // general
+                //~ if ( curT > 20*ns && curV > 0.7*pe) veryclean = false;   // works on H single channel
+                
                 // Direct x-talk: in 0-1 ns window and V > direct th.
                 if( curT <= cthrs.dir_xtalk_maxT * ns && curV > DiXT_thr) 
                 {
@@ -669,7 +682,8 @@ int main(int argc, char* argv[])
         if(graphs["AP_arrivaltime"]->GetEntries()) 
         {
             cout << "\n\n-----> AP time distribution fit ***" << endl;
-            fitTimeDist(graphs["AP_arrivaltime"], timeDistAP, APTimeDist_fit_result, "AP", 40*ns, Xmax[i]);
+            cout << "-----> " << graphs["AP_arrivaltime"]->GetEntries() << " entries" << endl;
+            fitTimeDist(graphs["AP_arrivaltime"], timeDistAP, APTimeDist_fit_result, "AP", 30*ns);
             //~ roofitTimeDist(graphs["AP_arrivaltime"], timeAP, timeDistAP, APTimeDist_fit_result, "AP", cthrs.AP_minT*ns, Xmax[i]);
             //~ roofitTimeDist(graphs["AP_arrivaltime"], timeAP, timeDistAP, APTimeDist_fit_result, "AP", 50*ns, Xmax[i]);   // AP mean lifetime fit starts at 50ns must be adapted maybe
             contribution_DCR_to_AP = APTimeDist_fit_result.Nbkg;
@@ -679,7 +693,8 @@ int main(int argc, char* argv[])
         if(graphs["DeXT_arrivaltime"]->GetEntries()) 
         {
             cout << "\n\n-----> DeXT time distribution fit ***" << endl;
-            fitTimeDist(graphs["DeXT_arrivaltime"], timeDistDeXT, DeXTTimeDist_fit_result, "DeXT", cthrs.dir_xtalk_maxT*ns, Xmax[i]);
+            cout << "-----> " << graphs["DeXT_arrivaltime"]->GetEntries() << " entries" << endl;
+            fitTimeDist(graphs["DeXT_arrivaltime"], timeDistDeXT, DeXTTimeDist_fit_result, "DeXT", cthrs.dir_xtalk_maxT*ns+graphs["DeXT_arrivaltime"]->GetBinWidth(0));
             //~ roofitTimeDist(graphs["DeXT_arrivaltime"], timeDeXT, timeDistDeXT, DeXTTimeDist_fit_result, "DeXT", cthrs.del_xtalk_minT*ns, Xmax[i]);
             contribution_DCR_to_DeXT = DeXTTimeDist_fit_result.Nbkg;
             if(!globalArgs.enable_dcr) contribution_DCR_to_DeXT = 0;	// Contribution of DCR sometimes wrong estimated, set to zero for QA H2017 for automated measurements!
@@ -787,9 +802,12 @@ int main(int argc, char* argv[])
         
         // Final persistence plots
         double amp0, tau;
+        double amp0_error, tau_error;
         cout << "\n\n-----> Long tau fit ***" << endl;
         //~ TF1 * exp_longtau = drawPersistenceWithLongTauFit(persistence_clean,canv_persistence["clean"], &amp0, &tau, pe, vol,Form("Clean waveforms #DeltaV = %2.2fV, Slow component amp = %2.4f",dV,amp0));
         TF1 * exp_longtau = drawPersistenceWithLongTauFit(persistence_clean,canv_persistence["clean"], &amp0, &tau, 1, vol,Form("Clean waveforms #DeltaV = %2.2fV, Slow component amp = %2.2fPE",dV,amp0), cleanforfit);
+        tau_error = exp_longtau->GetParError(2);
+        amp0_error = exp_longtau->GetParError(0);
         drawPersistence(persistence_DiXT,canv_persistence["DiXT"],Form("Direct cross-talk #DeltaV = %2.2fV",dV));
         drawPersistence(persistence_DeXT,canv_persistence["DeXT"],Form("Delayed cross-talk #DeltaV = %2.2fV",dV));
         drawPersistence(persistence_AP,canv_persistence["AP"],Form("After-pulse #DeltaV = %2.2fV",dV));
@@ -798,15 +816,14 @@ int main(int argc, char* argv[])
         vector<TString> add;
         add.push_back(Form("(%2.1f%%)",perc_DiXT*100)); add.push_back(Form("(%2.1f%%)",perc_AP*100)); add.push_back(Form("(%2.1f%%)",perc_DeXT*100)); add.push_back(Form("(%2.1f%%)",perc_Sec*100)); 
         TCanvas * c_amp_vs_time = finalizeMapGraphs(gAmp_vs_Time, Form("Amp_vs_Time_graph_%2.2fV",dV), "Pulse amplitude versus arrival time", "Arrival time [s]", "Pulse amplitude [PE]", add);
-        double recovery; 
-        //~ // Fits for long tau and recovery time
-        //~ cout << "\n\n-----> Long tau fit ***" << endl;
-        //~ double amp0, tau;
-        //~ //TF1 * exp_longtau = fitLongTau(cleanforfit, &amp0, &tau, pe, vol, canv["clean"]);
-        //~ TF1 * exp_longtau = fitLongTau(forfit, &amp0, &tau, pe, vol, canv["clean"], cleanforfit);	// does not work properly
         
         cout << "\n\n-----> After pulse fit ***" << endl;
-        TF1 * exp_AP = fitAPTau(Expfit_AP, amp0, tau, 1, vol, &recovery, cthrs.AP_minT*ns, 180*ns);
+        double recovery_time, recovery_time_error;
+        double t_0, t_0_error;
+        TF1 * exp_AP = fitAPTau(Expfit_AP, amp0, tau, 1, vol, &recovery_time, cthrs.AP_minT*ns, 180*ns);
+        recovery_time_error = exp_AP->GetParError(1);
+        t_0 = exp_AP->GetParameter(5);
+        t_0_error = exp_AP->GetParError(5);
         drawAPfit(canv["AP"], exp_AP, 1);
         canv["APtime"]->cd();
         formatGr(Expfit_AP, kBlue, 0, "Arrival time [s]", "Pulse amplitude [PE]", "After-pulse amplitude vs arrival time");
@@ -821,28 +838,36 @@ int main(int argc, char* argv[])
         cout << "Building final results" << endl;
         
         // 1st order correlated noise
-        setPoint(results["#DiXT"],  i, dV, perc_DiXT*100., 0., DiXT_error);
-        setPoint(results["#AP"],    i, dV, perc_AP*100.,   0., AP_error);
-        setPoint(results["#DeXT"],  i, dV, perc_DeXT*100., 0., DeXT_error);
-        setPoint(results["#Total"], i, dV, perc_noise_peaks*100., 0., totPrimCorr_error);
+        setPoint(results["#DiXT"],  i, dV, perc_DiXT*100., VBD_error, DiXT_error);
+        setPoint(results["#AP"],    i, dV, perc_AP*100.,   VBD_error, AP_error);
+        setPoint(results["#DeXT"],  i, dV, perc_DeXT*100., VBD_error, DeXT_error);
+        setPoint(results["#Total"], i, dV, perc_noise_peaks*100., VBD_error, totPrimCorr_error);
         
         // 2nd order correlated noise
-        setPoint(results["#SecPeaks"], i, dV, perc_Sec*100., 0., SecO_error);
-        setPoint(results["#SecPeaksDiXT"], i, dV, graphs["NpeaksDiXT"]->GetMean(), 0., graphs["NpeaksDiXT"]->GetMeanError());
-        setPoint(results["#SecPeaksDel"], i, dV, graphs["NpeaksDel"]->GetMean(), 0., graphs["NpeaksDel"]->GetMeanError());
+        setPoint(results["#SecPeaks"], i, dV, perc_Sec*100., VBD_error, SecO_error);
+        setPoint(results["#SecPeaksDiXT"], i, dV, graphs["NpeaksDiXT"]->GetMean(), VBD_error, graphs["NpeaksDiXT"]->GetMeanError());
+        setPoint(results["#SecPeaksDel"], i, dV, graphs["NpeaksDel"]->GetMean(), VBD_error, graphs["NpeaksDel"]->GetMeanError());
         
         // DCR contribution
-        setPoint(results["#DCR"], i, dV, perc_DCR*100., 0., DCR_error);
+        setPoint(results["#DCR"], i, dV, perc_DCR*100., VBD_error, DCR_error);
         
         // Corrections for PDE
-        setPoint(results["#CorrectionFre"], i, dV, corr_frequency*100., 0., CorrectionFre_error);
-        setPoint(results["#CorrectionCur"], i, dV, corr_current*100., 0., CorrectionCur_error);
+        setPoint(results["#CorrectionFre"], i, dV, corr_frequency*100., VBD_error, CorrectionFre_error);
+        setPoint(results["#CorrectionCur"], i, dV, corr_current*100., VBD_error, CorrectionCur_error);
         
         // Charge
-        setPoint(results["1PE-Waveform-Charge"], i, dV, clean_pulse_integral*1e3*1e9, 0., clean_pulse_integral_error*1e3*1e9);
-        setPoint(results["1PE-Charge-Fit"], i, dV, OnePEIntegral*1e3*1e9, 0., OnePEIntegral_error*1e3*1e9);
-        setPoint(results["Mean-Charge"], i, dV, mean_waveform_charge*1e3*1e9, 0., mean_waveform_charge_error*1e3*1e9);
-        setPoint(results["Mean-Charge-Corrected"], i, dV, corrected_charge*1e3*1e9, 0., corrected_charge_error*1e3*1e9);
+        setPoint(results["1PE-Waveform-Charge"], i, dV, clean_pulse_integral*1e3*1e9, VBD_error, clean_pulse_integral_error*1e3*1e9);
+        setPoint(results["1PE-Charge-Fit"], i, dV, OnePEIntegral*1e3*1e9, VBD_error, OnePEIntegral_error*1e3*1e9);
+        setPoint(results["Mean-Charge"], i, dV, mean_waveform_charge*1e3*1e9, VBD_error, mean_waveform_charge_error*1e3*1e9);
+        setPoint(results["Mean-Charge-Corrected"], i, dV, corrected_charge*1e3*1e9, VBD_error, corrected_charge_error*1e3*1e9);
+        
+        // Time constants and SiPM model
+        setPoint(results["TauRec"], i, dV, recovery_time*1e9, VBD_error, recovery_time_error*1e9);
+        setPoint(results["T_0"], i, dV, t_0*1e9, VBD_error, t_0_error*1e9);
+        setPoint(results["TauLong"], i, dV, tau*1e9, VBD_error, tau_error*1e9);
+        setPoint(results["AmpRatio"], i, dV, amp0, VBD_error, amp0_error);
+        setPoint(results["TauAP"], i, dV, APTimeDist_fit_result.tau*1e9, VBD_error, APTimeDist_fit_result.tau_error*1e9);
+        setPoint(results["TauDeXT"], i, dV, DeXTTimeDist_fit_result.tau*1e9, VBD_error, DeXTTimeDist_fit_result.tau_error*1e9);
         
         cout << "Saving objects" << endl;
     
@@ -1037,9 +1062,62 @@ int main(int argc, char* argv[])
     cfinal->SetTitle("Charge");
     cfinal->Write();
     
+    // write charge to pde file
+    printValues_with_bias(vol_folders, results["1PE-Charge-Fit"]->GetY(), results["1PE-Charge-Fit"]->GetEY(), "1PE_Charge[mV.ns]", values_for_pde);
+    
+    // Print SiPM model specific parameters
+    printValues(results["TauRec"]->GetY(), results["TauRec"]->GetN(), "TauRec", values_for_sipm_model);
+    printValues(results["TauRec"]->GetEY(), results["TauRec"]->GetN(), "TauRec_error", values_for_sipm_model);
+    printValues(results["T_0"]->GetY(), results["T_0"]->GetN(), "T_0", values_for_sipm_model);
+    printValues(results["T_0"]->GetEY(), results["T_0"]->GetN(), "T_0_error", values_for_sipm_model);
+    printValues(results["TauLong"]->GetY(), results["TauLong"]->GetN(), "TauLong", values_for_sipm_model);
+    printValues(results["TauLong"]->GetEY(), results["TauLong"]->GetN(), "TauLong_error", values_for_sipm_model);
+    printValues(results["AmpRatio"]->GetY(), results["AmpRatio"]->GetN(), "AmpRatio", values_for_sipm_model);
+    printValues(results["AmpRatio"]->GetEY(), results["AmpRatio"]->GetN(), "AmpRatio_error", values_for_sipm_model);
+    printValues(results["TauAP"]->GetY(), results["TauAP"]->GetN(), "TauAP", values_for_sipm_model);
+    printValues(results["TauAP"]->GetEY(), results["TauAP"]->GetN(), "TauAP_error", values_for_sipm_model);
+    printValues(results["TauDeXT"]->GetY(), results["TauDeXT"]->GetN(), "TauDeXT", values_for_sipm_model);
+    printValues(results["TauDeXT"]->GetEY(), results["TauDeXT"]->GetN(), "TauDeXT_error", values_for_sipm_model);
+    
+    // one plot with all time constants
+    formatGr(results["TauRec"], kRed, fillStyle, "#DeltaV [V]", "Time constants [ns]");
+    formatGr(results["T_0"], kOrange+8, fillStyle, "#DeltaV [V]", "Time constants [ns]");
+    formatGr(results["TauLong"], kBlue, fillStyle, "#DeltaV [V]", "Time constants [ns]");
+    formatGr(results["TauAP"], kViolet-5, fillStyle, "#DeltaV [V]", "Time constants [ns]");
+    formatGr(results["TauDeXT"], kViolet, fillStyle, "#DeltaV [V]", "Time constants [ns]");
+    int * allT = new int[5*vol_size];
+    copy(results["TauRec"]->GetY(), results["TauRec"]->GetY() + vol_size, allT);
+    copy(results["T_0"]->GetY(), results["T_0"]->GetY() + vol_size, allT + vol_size);
+    copy(results["TauLong"]->GetY(), results["TauLong"]->GetY() + vol_size, allT + vol_size);
+    copy(results["TauAP"]->GetY(), results["TauAP"]->GetY() + vol_size, allT + vol_size);
+    copy(results["TauDeXT"]->GetY(), results["TauDeXT"]->GetY() + vol_size, allT + vol_size);
+    double minT = *std::min_element(allT,allT+5*vol_size);
+    double maxT = *std::max_element(allT,allT+5*vol_size);
+    if(minT<0) minT=0;
+    if(maxT>500) maxT=500;
+    results["TauRec"]->Draw("APL3");
+    results["TauRec"]->GetYaxis()->SetRangeUser(minT-0.1*(maxT-minT),maxT+0.1*(maxT-minT));
+    results["T_0"]->Draw("PL+3");
+    results["TauLong"]->Draw("PL+3");
+    results["TauAP"]->Draw("PL+3");
+    results["TauDeXT"]->Draw("PL+3");
+    leg = new TLegend(0.85,0.70,0.95,0.95);
+    leg->AddEntry(results["TauRec"],"#tau_{rec}","f");
+    leg->AddEntry(results["T_0"],"t_{0}","f");
+    leg->AddEntry(results["TauLong"],"#tau_{long}","f");
+    leg->AddEntry(results["TauAP"],"#tau_{AP}","f");
+    leg->AddEntry(results["TauDeXT"],"#tau_{DeXT}","f");
+    leg->SetFillColor(kWhite);
+    leg->Draw();
+    cfinal->Print(globalArgs.res_folder+"TimeConstants.pdf");
+    cfinal->SetName("TimeConstants");
+    cfinal->SetTitle("Time constants");
+    cfinal->Write();
+    
     // ------------
     hfile->Close();
     values_for_pde->close();
+    values_for_sipm_model->close();
     
     return 0;
 }

@@ -17,12 +17,13 @@
 #include <TCanvas.h>
 #include <iostream>
 #include <TFitResultPtr.h>
+#include <TFitResult.h>
 #include <TPaveText.h>
 #include <fstream>
 
 #include "genparam.h"
 
-double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL, ofstream * values=NULL)
+double fitBreakdownVoltage(TGraph * Vbias_ver, double& VBD_error, TFile * file=NULL, ofstream * values=NULL)
 {
     TCanvas * ca = new TCanvas("Voltage Breakdown calculation","Voltage Breakdown calculation",100,100,900,700);
     Vbias_ver->SetTitle("Voltage Breakdown calculation");
@@ -51,6 +52,7 @@ double fitBreakdownVoltage(TGraph * Vbias_ver, TFile * file=NULL, ofstream * val
 	if(values) (*values) << "VBD : " << VBD << endl;
 	cout << "VBD_error : " << fit->Error(0) << endl;
 	if(values) (*values) << "VBD_error : " << fit->Error(0) << endl;
+    VBD_error = fit->Error(0);
 
     TPaveText * pv = new TPaveText(0.2,0.65,0.5,0.75,"brNDC");
     pv->AddText(Form("V_{BD} = %2.2f#pm%2.2f V",VBD,fit->Error(0)));
@@ -209,18 +211,9 @@ void fitTimeDist(TH1 * timeDist, TCanvas * c, timeFitResult& new_fit, const char
 	// - a exponential decrease (physical distribution of time of arrivals)
 	// - a constant plateau due to DCR
     
-    // Pre-fit to get starting parameters
     // Total fit range:
 	double minFit = timeDist->GetBinLowEdge(timeDist->GetMaximumBin());
 	double maxFit = timeDist->GetBinLowEdge(timeDist->FindLastBinAbove()) + timeDist->GetBinWidth(timeDist->FindLastBinAbove());
-	double expFitMax = minFit + ((maxFit-minFit)/3.0);
-	// Fits first with an exponential
-	TF1 * expo1 = new TF1(Form("expo1_%s",timeDist->GetName()), "expo", minFit,expFitMax);
-	timeDist->Fit(Form("expo1_%s",timeDist->GetName()),"QN","",minFit,expFitMax);
-	// Uses the fit results to fit the entire distribution
-	double startAmp = TMath::Exp(expo1->GetParameter(0));
-	double startTau = 1.0/TMath::Abs(expo1->GetParameter(1));
-    double startCst = 0;
 	
 	c->cd();
     timeDist->Draw("E0");
@@ -233,7 +226,53 @@ void fitTimeDist(TH1 * timeDist, TCanvas * c, timeFitResult& new_fit, const char
 	max_for_fit = maxFit;
     if(minTime) min_for_fit = minTime;
     if(maxTime) max_for_fit = maxTime;
-	
+    
+    // Rebin histogram in case of low statistics
+    TH1 *hi = (TH1*)timeDist->Clone("h");
+    hi->GetXaxis()->SetRangeUser(min_for_fit,max_for_fit);
+    double minent = hi->GetMinimum();
+    unsigned int minbin = hi->GetMinimumBin();
+    unsigned int binlow, binhigh;
+    binlow  = hi->FindBin(min_for_fit);
+    binhigh = hi->FindBin(max_for_fit);
+    delete hi;
+    unsigned int rebin(1);
+    double rangemin, rangemax;
+    while(minent<1 && minbin>=binlow && minbin<=binhigh) {
+        ++rebin;
+        TH1 *h = dynamic_cast<TH1*>(timeDist->Rebin(rebin,"h_rebin"));
+        unsigned int binmin, binmax;
+        binmin = h->FindBin(min_for_fit);
+        binmax = h->FindBin(max_for_fit);
+        rangemin = h->GetBinLowEdge(binmin) + h->GetBinWidth(binmin);
+        rangemax = h->GetBinLowEdge(binmax);
+        //~ h->GetXaxis()->SetRangeUser(min_for_fit,max_for_fit);
+        h->GetXaxis()->SetRangeUser(rangemin,rangemax);
+        minent = h->GetMinimum();
+        minbin = h->GetMinimumBin();
+        binlow = h->FindBin(min_for_fit);
+        binhigh= h->FindBin(max_for_fit);
+        
+        delete h;
+    }
+    if(rebin!=1) {
+        timeDist->Rebin(rebin);
+        min_for_fit = rangemin;
+        max_for_fit = rangemax;
+    }
+    
+    // Pre-fit to get starting parameters
+    // Total fit range:
+	double expFitMax = minFit + ((maxFit-minFit)/3.0);
+	// Fits first with an exponential
+	TF1 * expo1 = new TF1(Form("expo1_%s",timeDist->GetName()), "expo", minFit,expFitMax);
+	timeDist->Fit(Form("expo1_%s",timeDist->GetName()),"QN","",minFit,expFitMax);
+	// Uses the fit results to fit the entire distribution
+	double startAmp = TMath::Exp(expo1->GetParameter(0));
+	double startTau = 1.0/TMath::Abs(expo1->GetParameter(1));
+    double startCst = 0;
+    
+    // Fit function
 	TF1 * expo_and_dcr = new TF1(Form("fit_%s",timeDist->GetName()), "[0]*exp(-x/[1]) + [2]", min_for_fit,max_for_fit);
     expo_and_dcr->SetLineColor(kRed);
 	expo_and_dcr->SetParameter(0,startAmp);
@@ -242,7 +281,15 @@ void fitTimeDist(TH1 * timeDist, TCanvas * c, timeFitResult& new_fit, const char
     expo_and_dcr->SetParLimits(1,1*ns,120*ns);
 	expo_and_dcr->SetParameter(2,startCst);
     expo_and_dcr->SetParLimits(2,0,timeDist->GetEntries());
-	timeDist->Fit(Form("fit_%s",timeDist->GetName()),"Q+","",min_for_fit,max_for_fit);
+    
+	TFitResultPtr fr = timeDist->Fit(Form("fit_%s",timeDist->GetName()),"QNS","",min_for_fit,max_for_fit);
+    if(fr->CovMatrixStatus()!=3) {
+        // not sufficient data, just do a constant fit
+        expo_and_dcr->FixParameter(0,0);
+        expo_and_dcr->FixParameter(1,10*ns);
+        timeDist->Fit(Form("fit_%s",timeDist->GetName()),"QN","",min_for_fit,max_for_fit);
+    }
+    expo_and_dcr->Draw("same");
     
     // *********** fit results ************
 	double result_tau = expo_and_dcr->GetParameter(1);

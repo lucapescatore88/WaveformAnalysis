@@ -16,6 +16,8 @@
 using namespace std;
 
 const double ns = 1e-9;
+const double rise_time = -3*ns;
+double fall_time = 4*ns;  // cannot be larger than DiXT_maxT, set to 4ns for H single channel
 
 struct globalArgs_t
 {
@@ -151,7 +153,7 @@ double evaluateBaselineShift(TGraphErrors * gr) {
         double x, y;
         gr->GetPoint(bsl_npts,x,y);
         baseline_shift += y;
-        if(x>=-1*dt) zero_reached = true;
+        if(x>=rise_time) zero_reached = true;
         bsl_npts++;
     }
     if(bsl_npts) baseline_shift = baseline_shift/bsl_npts;
@@ -262,6 +264,13 @@ void printValues(double values[], int n, std::string option, ostream * out = 0) 
         if(i==n-1) cout << values[i] << "]" << endl;
         if(out && i<n-1) (*out) << values[i] << ",";
         if(out && i==n-1) (*out) << values[i] << "]" << endl;
+    }
+	return;
+}
+
+void printValues_with_bias(vector<TString> V, double values[], double values_error[], std::string option, ostream * out = 0) {
+    for(unsigned int i(0); i<V.size(); ++i) {
+        if(out) (*out) << "V || " << V[i] << " || " << option << " = " << values[i] << " pm " << values_error[i] << endl;
     }
 	return;
 }
