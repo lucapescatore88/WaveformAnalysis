@@ -16,6 +16,7 @@ using namespace std;
 int main(int argc, char* argv[]) 
 {
     lhcbstyle();
+    int fillStyle = 3003;
 
     //gROOT->ProcessLine(".x Analysis/lhcbStyle.C");
 
@@ -35,7 +36,10 @@ int main(int argc, char* argv[])
     
     Int_t data_size;
     vector <Thresholds> thrs;
-    vector <TString> vol_folders = readSetupFile(&setupFile,&data_size,thrs);
+    // Two parameters for random overlap study
+    double integration_time = 0;
+    int integration_number = 0;
+    vector <TString> vol_folders = readSetupFile(&setupFile,&data_size,thrs, &integration_time,&integration_number);
     const int vol_size = vol_folders.size();
     TFile * ifile =  TFile::Open(TString(globalArgs.data_folder)+"/oscilloscope_out.root");
     
@@ -50,7 +54,7 @@ int main(int argc, char* argv[])
         {"#SecPeaks",             new TGraphErrors()},
         {"#SecPeaksDiXT",         new TGraphErrors()},
         {"#SecPeaksDel",          new TGraphErrors()},
-        {"1PE-Waveform-Charge",   new TGraphErrors()},
+        {"Clean-Waveform-Charge", new TGraphErrors()},
         {"1PE-Charge-Fit",        new TGraphErrors()},
         {"Mean-Charge",           new TGraphErrors()},
         {"Mean-Charge-Corrected", new TGraphErrors()},
@@ -194,8 +198,24 @@ int main(int argc, char* argv[])
            {"Npeaks",           new TH1D(Form("N_peaks_%s",vol),"Number of noise peaks when not clean", 50, 0, 50)},
            {"NpeaksDiXT",       new TH1D(Form("N_peaks_DiXT_%s",vol),"Number of noise peaks when direct DiXT", 50, 0, 50)},
            {"NpeaksDel",        new TH1D(Form("N_peaks_Delayed_%s",vol),"Number of noise peaks when delayed noise", 50, 0, 50)},
-           {"Charge",           new TH1D(Form("Charge_%s",vol),"Charge of waveforms", 1000, 0., ns*100*pe)}
+           {"Charge",           new TH1D(Form("Charge_%s",vol),"Charge of waveforms", 1000, 0., ns*100*pe)},
+           {"Clean_Charge",     new TH1D(Form("Clean_Charge_%s",vol),"Charge of clean waveforms", 1000, 0., ns*100*pe)}
         };
+        
+        // Charge for different time windows
+        TH2D * charge_time_window = NULL;
+        TGraphErrors * PE_charge_time_window = NULL;
+        if(integration_number>0 && integration_time>0) {
+            charge_time_window = new TH2D(Form("Charge_Time_Window_%s",vol), "Charge for different time window",
+                                            integration_number, 0.5*integration_time, (integration_number+0.5)*integration_time,
+                                            1000, 0., ns*50*pe*(1e3*1e9));
+            charge_time_window->GetXaxis()->SetTitle("Integration time window [ns]");
+            charge_time_window->GetYaxis()->SetTitle("Pulse integral [mV#timesns]");
+            
+            PE_charge_time_window = new TGraphErrors(integration_number);
+            formatGr(PE_charge_time_window, kRed, fillStyle, "Integration time window [ns]", "1PE pulse integral [mV#timesns]", "1PE pulse integral", Form("1PE_Charge_Time_Window_%s",vol));
+        }
+        
         // Canvas for time distribution fits
         TCanvas * timeDistAP   = new TCanvas(Form("canv_AP_arrival_times_%s",vol), "After-pulse arrival times");
         TCanvas * timeDistDeXT = new TCanvas(Form("canv_DeXT_arrival_times_%s",vol), "Delayed cross-talk arrival times");
@@ -360,6 +380,9 @@ int main(int argc, char* argv[])
             
 // ---------------------------------------------------------------------
 // ------------------- Loop over the detected peaks --------------------
+            
+            double pulse_integral_time_window = 0.0;
+            unsigned int step_nb = 1;
 
             for (int row = bsl_npts; row < npts-2; row++) { // loop start when time[row] = 0ns
                 double curT = time[row];
@@ -368,6 +391,12 @@ int main(int argc, char* argv[])
                 // Compute pulse integral as the sum of area of trapezoids
                 //if(curV-baseline_shift>0) pulse_integral += 0.5 * dt *(curV+volts[row-1] - 2*baseline_shift);
                 pulse_integral += 0.5 * dt *(curV+volts[row-1] - 2*baseline_shift);
+                
+                pulse_integral_time_window += 0.5 * dt *(curV+volts[row-1] - 2*baseline_shift);
+                if(curT >= step_nb*integration_time*ns) {
+                    if(charge_time_window) charge_time_window->Fill(step_nb*integration_time, pulse_integral_time_window*1e3*1e9);
+                    ++step_nb;
+                }
     
                 // Skip if not on a maximum
                 // Skip if dead time condition is not fulfilled
@@ -452,7 +481,10 @@ int main(int argc, char* argv[])
                 sprintf(Category,"Clean");
     
                 // Get only very clean waves and make an average for long tau fit.
-                if(veryclean) cleanforfit = average(cleanforfit, waveform, pe);
+                if(veryclean) {
+                    cleanforfit = average(cleanforfit, waveform, pe);
+                    graphs["Clean_Charge"]->Fill(pulse_integral);
+                }
                 //~ cleanforfit = average(cleanforfit, waveform);
     
                 if(nsaved < maxNwaveforms) // Max 20 clean graphs on the plot
@@ -651,6 +683,15 @@ int main(int argc, char* argv[])
             } // end of more than one primary correlated noise
     
             tot_noise_peaks_cnt += noise_peaks_cnt;
+            
+            // Last points for pulse integral -- must be change if time loop is changed !!!
+            pulse_integral += 0.5 * dt * (volts[npts-2]+volts[npts-3] - 2*baseline_shift  +  volts[npts-1]+volts[npts-2] - 2*baseline_shift);
+            
+            pulse_integral_time_window += 0.5 * dt * (volts[npts-2]+volts[npts-3] - 2*baseline_shift  +  volts[npts-1]+volts[npts-2] - 2*baseline_shift);
+            if(time[npts-1] >= step_nb*integration_time*ns)
+                if(charge_time_window) charge_time_window->Fill(step_nb*integration_time, pulse_integral_time_window*1e3*1e9);
+            
+            
             graphs["Charge"]->Fill(pulse_integral);
             if(globalArgs.save_tree) otree->Fill();
             
@@ -771,6 +812,8 @@ int main(int argc, char* argv[])
         double OnePEIntegral = fitSimple1D(graphs["Charge"], OnePEIntegral_error);    // from charge distribution fit
         double clean_pulse_integral_error(0);
         double clean_pulse_integral = computeIntegral(cleanforfit, evaluateBaselineShift(cleanforfit), clean_pulse_integral_error, 1./pe);    // from clean waveforms integral
+        double OnePEIntegral_clean_waveforms_error(0);
+        double OnePEIntegral_clean_waveforms = fitSimple1D(graphs["Clean_Charge"], OnePEIntegral_clean_waveforms_error);    // from charge distribution fit
         // Mean waveform charge
         double mean_waveform_charge_error = graphs["Charge"]->GetMeanError();
         double mean_waveform_charge = graphs["Charge"]->GetMean();
@@ -826,8 +869,7 @@ int main(int argc, char* argv[])
         t_0_error = exp_AP->GetParError(5);
         drawAPfit(canv["AP"], exp_AP, 1);
         canv["APtime"]->cd();
-        formatGr(Expfit_AP, kBlue, 0, "Arrival time [s]", "Pulse amplitude [PE]", "After-pulse amplitude vs arrival time");
-        Expfit_AP->SetName("APamp_vs_arrivalTime");
+        formatGr(Expfit_AP, kBlue, 0, "Arrival time [s]", "Pulse amplitude [PE]", "After-pulse amplitude vs arrival time", "APamp_vs_arrivalTime");
         Expfit_AP->Draw("AP");
         Expfit_AP->GetYaxis()->SetRangeUser(0,1);
         TPaveText * pv = new TPaveText(0.15,0.76,0.45,0.85,"brNDC");
@@ -856,10 +898,14 @@ int main(int argc, char* argv[])
         setPoint(results["#CorrectionCur"], i, dV, corr_current*100., VBD_error, CorrectionCur_error);
         
         // Charge
-        setPoint(results["1PE-Waveform-Charge"], i, dV, clean_pulse_integral*1e3*1e9, VBD_error, clean_pulse_integral_error*1e3*1e9);
+        setPoint(results["Clean-Waveform-Charge"], i, dV, clean_pulse_integral*1e3*1e9, VBD_error, clean_pulse_integral_error*1e3*1e9);
         setPoint(results["1PE-Charge-Fit"], i, dV, OnePEIntegral*1e3*1e9, VBD_error, OnePEIntegral_error*1e3*1e9);
         setPoint(results["Mean-Charge"], i, dV, mean_waveform_charge*1e3*1e9, VBD_error, mean_waveform_charge_error*1e3*1e9);
         setPoint(results["Mean-Charge-Corrected"], i, dV, corrected_charge*1e3*1e9, VBD_error, corrected_charge_error*1e3*1e9);
+        
+        // Charge for different time windows
+        TCanvas * c_time_window = NULL;
+        if(charge_time_window) c_time_window = finalizeChargeTimeWindow(charge_time_window, PE_charge_time_window, "canv_Charge_Time_Window");
         
         // Time constants and SiPM model
         setPoint(results["TauRec"], i, dV, recovery_time*1e9, VBD_error, recovery_time_error*1e9);
@@ -878,10 +924,18 @@ int main(int argc, char* argv[])
         objects_to_save.push_back(c_t);
         // Waveform canvas        
         for(auto const &e : canv) objects_to_save.push_back(e.second);
+        for(auto const &e : canv_persistence) objects_to_save.push_back(e.second);
         for(auto const &e : graphs) objects_to_save.push_back(e.second);
+        if(charge_time_window) {
+            //~ objects_to_save.push_back(charge_time_window);
+            objects_to_save.push_back(PE_charge_time_window);
+            objects_to_save.push_back(c_time_window);
+            
+            //~ printValues(PE_charge_time_window->GetY(), PE_charge_time_window->GetN(), Form("V || %s || 1PE_Charge[mV.ns]",vol), values_for_pde);
+            //~ printValues(PE_charge_time_window->GetEY(), PE_charge_time_window->GetN(), Form("V || %s || 1PE_Charge_Error[mV.ns]",vol), values_for_pde);
+        }
         objects_to_save.push_back(timeDistAP);
         objects_to_save.push_back(timeDistDeXT);
-        for(auto const &e : canv_persistence) objects_to_save.push_back(e.second);
         // fit for long tau and AP
         objects_to_save.push_back(exp_longtau);
         //objects_to_save.push_back(exp_longtau2);
@@ -923,7 +977,6 @@ int main(int argc, char* argv[])
         //delete waveform;
     }
     
-    int fillStyle = 3003;
     // Save TTree with hist of noise for each event OV and the noise classification
     hfile->cd();
     otree->Write();
@@ -933,12 +986,12 @@ int main(int argc, char* argv[])
     
     Double_t tot_max_noise = TMath::MaxElement(results["#Total"]->GetN(),results["#Total"]->GetY());
     
-    formatGr(results["#Total"], kBlack, fillStyle, "#DeltaV [V]", "Correlated noise [%]", "Correlated Noise");
+    formatGr(results["#Total"], kBlack, fillStyle, "#DeltaV [V]", "Correlated noise [%]", "Correlated Noise", "tot_prim_corr_noise");
     results["#Total"]->GetYaxis()->SetRangeUser(0,tot_max_noise+2);
-    formatGr(results["#DiXT"], kBlue, fillStyle, "#DeltaV [V]", "Correlated noise [%]");
-    formatGr(results["#AP"], kOrange+7, fillStyle, "#DeltaV [V]", "Correlated noise [%]");
-    formatGr(results["#DeXT"], kGreen+2, fillStyle, "#DeltaV [V]", "Correlated noise [%]");
-    formatGr(results["#SecPeaks"], 7, fillStyle, "#DeltaV [V]", "Correlated noise [%]");
+    formatGr(results["#DiXT"], kBlue, fillStyle, "#DeltaV [V]", "Correlated noise [%]", "Correlated Noise", "DiXT");
+    formatGr(results["#AP"], kOrange+7, fillStyle, "#DeltaV [V]", "Correlated noise [%]", "Correlated Noise", "AP");
+    formatGr(results["#DeXT"], kGreen+2, fillStyle, "#DeltaV [V]", "Correlated noise [%]", "Correlated Noise", "DeXT");
+    formatGr(results["#SecPeaks"], 7, fillStyle, "#DeltaV [V]", "Correlated noise [%]", "Correlated Noise", "SecPeaks");
     
     results["#Total"]->Draw("ALP*3");
     results["#DiXT"]->Draw("LP*3");
@@ -963,7 +1016,7 @@ int main(int argc, char* argv[])
     if(tot_max_order<tot_max_noise) tot_max_order = tot_max_noise;
     
     results["#SecPeaks"]->GetYaxis()->SetRangeUser(0,tot_max_order+2);
-    formatGr(results["#DCR"], 2, fillStyle, "#DeltaV [V]", "DCR contribution");
+    formatGr(results["#DCR"], 2, fillStyle, "#DeltaV [V]", "DCR contribution", "DCR contribution", "dcr_contribution");
     
     results["#SecPeaks"]->Draw("ALP*3");
     results["#Total"]->Draw("LP*3");
@@ -982,8 +1035,8 @@ int main(int argc, char* argv[])
     cfinal->Print(globalArgs.res_folder+"PrimaryVsSecondaryCorrelatedNoise.pdf");
     cfinal->Write();
     
-    formatGr(results["#CorrectionFre"], kRed, fillStyle, "#DeltaV [V]", "Correction", "Correction");
-    formatGr(results["#CorrectionCur"], kBlue,fillStyle, "#DeltaV [V]", "Correction", "Correction");
+    formatGr(results["#CorrectionFre"], kRed, fillStyle, "#DeltaV [V]", "Correction", "Correction", "correction_freq");
+    formatGr(results["#CorrectionCur"], kBlue,fillStyle, "#DeltaV [V]", "Correction", "Correction", "correction_curr");
     results["#CorrectionCur"]->Draw("ALP*3");
     results["#CorrectionFre"]->Draw("LP*3");
     leg = new TLegend(0.15,0.75,0.37,0.87);
@@ -1011,9 +1064,9 @@ int main(int argc, char* argv[])
     // ----------
     Double_t tot_max_peaks = TMath::MaxElement(results["#SecPeaksDiXT"]->GetN(),results["#SecPeaksDiXT"]->GetY());
     results["#SecPeaksDiXT"]->SetTitle("Secondary peaks after a noise peak");
-    formatGr(results["#SecPeaksDiXT"], kBlue, fillStyle, "#DeltaV [V]", "<N Secondary peaks>");
+    formatGr(results["#SecPeaksDiXT"], kBlue, fillStyle, "#DeltaV [V]", "<N Secondary peaks>", "<N Secondary peaks>", "n_sec_peaks_DiXT");
     results["#SecPeaksDiXT"]->GetYaxis()->SetRangeUser(0,tot_max_peaks*2.);
-    formatGr(results["#SecPeaksDel"], kGreen+2, fillStyle, "#DeltaV [V]", "<N Secondary peaks>");
+    formatGr(results["#SecPeaksDel"], kGreen+2, fillStyle, "#DeltaV [V]", "<N Secondary peaks>", "<N Secondary peaks>", "n_sec_peaks_DeXT");
     results["#SecPeaksDiXT"]->Draw("ALP*3");
     results["#SecPeaksDel"]->Draw("LP*3");
     
@@ -1029,14 +1082,14 @@ int main(int argc, char* argv[])
     cfinal->Write();
     
     // Charge
-    formatGr(results["1PE-Waveform-Charge"], kGreen+2, fillStyle, "#DeltaV [V]", "Charge [mV#timesns]");
-    formatGr(results["1PE-Charge-Fit"], kBlue, fillStyle, "#DeltaV [V]", "Charge [mV#timesns]");
-    formatGr(results["Mean-Charge"], kRed, fillStyle, "#DeltaV [V]", "Charge [mV#timesns]");
-    formatGr(results["Mean-Charge-Corrected"], kMagenta+1, fillStyle, "#DeltaV [V]", "Charge [mV#timesns]");
+    formatGr(results["Clean-Waveform-Charge"], kGreen+2, fillStyle, "#DeltaV [V]", "Charge [mV#timesns]", "Charge", "clean_waveform_charge");
+    formatGr(results["1PE-Charge-Fit"], kBlue, fillStyle, "#DeltaV [V]", "Charge [mV#timesns]", "Charge", "1pe_charge_fit");
+    formatGr(results["Mean-Charge"], kRed, fillStyle, "#DeltaV [V]", "Charge [mV#timesns]", "Charge", "average_charge");
+    formatGr(results["Mean-Charge-Corrected"], kMagenta+1, fillStyle, "#DeltaV [V]", "Charge [mV#timesns]", "Charge", "average_charge_curr_corrected");
     //~ results["Mean-Charge-Corrected"]->SetLineStyle(4);
     results["Mean-Charge"]->Draw("APL3");
     results["Mean-Charge"]->SetTitle("Waveform charge");
-    results["1PE-Waveform-Charge"]->Draw("PL+3");
+    results["Clean-Waveform-Charge"]->Draw("PL+3");
     results["1PE-Charge-Fit"]->Draw("PL+3");
     results["Mean-Charge-Corrected"]->Draw("PL+3");
     TF1 * linfit = new TF1("lin_vbd_fit","[0]*(x-[1])");
@@ -1051,7 +1104,7 @@ int main(int argc, char* argv[])
     pv->Draw();
     
     leg = new TLegend(0.15,0.70,0.50,0.87);
-    leg->AddEntry(results["1PE-Waveform-Charge"],"1PE (clean waveforms)","f");
+    leg->AddEntry(results["Clean-Waveform-Charge"],"1PE (clean waveforms)","f");
     leg->AddEntry(results["1PE-Charge-Fit"],"1PE (charge distr. fit)","f");
     leg->AddEntry(results["Mean-Charge"],"Mean (all waveforms)","f");
     leg->AddEntry(results["Mean-Charge-Corrected"],"Mean (corrected)","f");
@@ -1063,7 +1116,7 @@ int main(int argc, char* argv[])
     cfinal->Write();
     
     // write charge to pde file
-    printValues_with_bias(vol_folders, results["1PE-Charge-Fit"]->GetY(), results["1PE-Charge-Fit"]->GetEY(), "1PE_Charge[mV.ns]", values_for_pde);
+    //~ printValues_with_bias(vol_folders, results["1PE-Charge-Fit"]->GetY(), results["1PE-Charge-Fit"]->GetEY(), "1PE_Charge[mV.ns]", values_for_pde);
     
     // Print SiPM model specific parameters
     printValues(results["TauRec"]->GetY(), results["TauRec"]->GetN(), "TauRec", values_for_sipm_model);
@@ -1080,11 +1133,11 @@ int main(int argc, char* argv[])
     printValues(results["TauDeXT"]->GetEY(), results["TauDeXT"]->GetN(), "TauDeXT_error", values_for_sipm_model);
     
     // one plot with all time constants
-    formatGr(results["TauRec"], kRed, fillStyle, "#DeltaV [V]", "Time constants [ns]");
-    formatGr(results["T_0"], kOrange+8, fillStyle, "#DeltaV [V]", "Time constants [ns]");
-    formatGr(results["TauLong"], kBlue, fillStyle, "#DeltaV [V]", "Time constants [ns]");
-    formatGr(results["TauAP"], kViolet-5, fillStyle, "#DeltaV [V]", "Time constants [ns]");
-    formatGr(results["TauDeXT"], kViolet, fillStyle, "#DeltaV [V]", "Time constants [ns]");
+    formatGr(results["TauRec"], kRed, fillStyle, "#DeltaV [V]", "Time constants [ns]", "Time constants", "time_t_rec");
+    formatGr(results["T_0"], kOrange+8, fillStyle, "#DeltaV [V]", "Time constants [ns]", "Time constants", "time_t0");
+    formatGr(results["TauLong"], kBlue, fillStyle, "#DeltaV [V]", "Time constants [ns]", "Time constants", "time_t_long");
+    formatGr(results["TauAP"], kViolet-5, fillStyle, "#DeltaV [V]", "Time constants [ns]", "Time constants", "time_t_ap");
+    formatGr(results["TauDeXT"], kViolet, fillStyle, "#DeltaV [V]", "Time constants [ns]", "Time constants", "time_t_dext");
     int * allT = new int[5*vol_size];
     copy(results["TauRec"]->GetY(), results["TauRec"]->GetY() + vol_size, allT);
     copy(results["T_0"]->GetY(), results["T_0"]->GetY() + vol_size, allT + vol_size);

@@ -173,7 +173,7 @@ int Cluster_Search(double event_array[128], double threshold[3], vector<double>&
     return nbCluster;
 }
 
-TCanvas * plotNCR(vector<TGraphErrors*> gs, TString option="seed") {
+TCanvas * plotNCR(vector<TGraphErrors*> gs, TString option="seed", TFile * f=NULL, TString dir="") {
     if(!gs.size()) return NULL;
     double dV(0), para(0);
     TString title, xtitle, header;
@@ -181,6 +181,8 @@ TCanvas * plotNCR(vector<TGraphErrors*> gs, TString option="seed") {
     int Ncol;
     if(option == "seed") { pattern = "NCR_vs_"+string(option)+"_%lfns_%lfV"; leg_pat="%2.0lf"; title="NCR vs seed threshold"; xtitle="Seed threshold [PE]"; header="Integration time [ns]"; Ncol=3; }
     if(option == "time_window") { pattern = "NCR_vs_"+string(option)+"_%lfPE_%lfV"; leg_pat="%2.1lf"; title="NCR vs integration time"; xtitle="#tau_{int} [ns]"; header="Seed threshold [PE]"; Ncol=2; }
+    
+    if(f) f->cd(dir);
     
     double tmp1, tmp2;
     if(sscanf(gs[0]->GetName(), pattern.c_str(), &tmp1, &tmp2) == 2) {
@@ -225,11 +227,13 @@ TCanvas * plotNCR(vector<TGraphErrors*> gs, TString option="seed") {
         leg->AddEntry(gs[i], Form(leg_pat.c_str(),para), "f");
         cNCR->cd();
         gs[i]->Draw("PL+3");
+        if(f) gs[i]->Write();
     }
     leg->Draw();
     cNCR->SetLogy();
     cNCR->SetGrid();
     gStyle->SetGridColor(17);
+    if(f) f->cd();
     return cNCR;
 }
 

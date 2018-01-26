@@ -32,10 +32,10 @@ int main(int argc, char* argv[])
     
     Int_t data_size;
     double VBD, VBD_error;
-    vector<double> OnePECharge, OnePECharge_error;
+    TString pe_file;
     double integration_time;
     int integration_number, Nsim;
-    vector <TString> vol_folders = readSetupFile_ro(&setupFile,&data_size,&VBD,&VBD_error,&integration_time,&integration_number,&OnePECharge,&OnePECharge_error,&Nsim);
+    vector <TString> vol_folders = readSetupFile_ro(&setupFile,&data_size,&VBD,&VBD_error,&integration_time,&integration_number,&pe_file,&Nsim);
     const int vol_size = vol_folders.size();
     TFile * ifile =  TFile::Open(TString(globalArgs.data_folder)+"/oscilloscope_out.root");
     
@@ -84,9 +84,15 @@ int main(int argc, char* argv[])
     {
         const char * vol = vol_folders[i];
         cout << "\n\n----> Voltage analyzed: " << vol << endl;
+        
+        vector<double> OnePECharge(integration_number,0), OnePECharge_error(integration_number,0);
+        TGraphErrors * pe_plot = getPeFromFile(pe_file, vol, OnePECharge, OnePECharge_error);
+        if(pe_plot==0) {
+            cout << "Unable to load PE values." << endl;
+            return 0;
+        }
     
         // Counters 
-    
         unsigned int events_cnt = 0;
         
         Vbias = vol_folders[i].Atof();
@@ -97,13 +103,14 @@ int main(int argc, char* argv[])
         double tau_dcr = (1./dcr)*1e6;      // average time spacing in ns
         
         // Defines scale from charge unit
-        double charge_scale = 1;
-        if(charge_unit == "[V#timess]") charge_scale = 1;
-        if(charge_unit == "[mV#timesns]") charge_scale = 1e-3*1e-9;
-        if(charge_unit == "[1PE]") charge_scale = OnePECharge[i];
+        vector<double> * charge_scale = 0;
+        if(charge_unit == "[V#timess]")         charge_scale = new vector<double>(integration_number,1);
+        else if(charge_unit == "[mV#timesns]")  charge_scale = new vector<double>(integration_number,1e-3*1e-9);
+        else if(charge_unit == "[1PE]")         charge_scale = &OnePECharge;
+        else                                    charge_scale = new vector<double>(integration_number,1);
         
         vector<TH1D*> histograms_section_integral;
-        initChargeIntegrationTime_dist(integration_number, integration_time, histograms_section_integral, tau_dcr, dV, charge_scale/OnePECharge[i], charge_unit);
+        initChargeIntegrationTime_dist(integration_number, integration_time, histograms_section_integral, tau_dcr, dV, OnePECharge, (*charge_scale), charge_unit);
         
         TGraphErrors * graphs_charge_vs_integration_time = new TGraphErrors();
         graphs_charge_vs_integration_time->SetName(Form("ChargeVsIntTime_dV=%2.2lfV",dV));
@@ -132,17 +139,9 @@ int main(int argc, char* argv[])
         for (int j = 0; j < data_size; j++)
         {
             events_cnt++;
-    
-            if(globalArgs.input=="root") 
-            {
-                tree->GetEntry(j);
-                waveform = new TGraph(npts,times,amps);
-            }
-            else  // Read from csv file
-            {
-                TString datafilename = Form("%s%s/%i.csv",globalArgs.data_folder,vol,j);
-                waveform = new TGraph(datafilename,"%lg %lg","/t;,");
-            }
+        
+            tree->GetEntry(j);
+            waveform = new TGraph(npts,times,amps);
             if (waveform->IsZombie()) continue;
     
             waveform->SetName(Form("%s_%i",vol,j));
@@ -162,7 +161,7 @@ int main(int argc, char* argv[])
             delete fcste;
             
             // compute integral by section
-            computeALLIntegral_by_section(time, volts, npts, integration_number, integration_time, histograms_section_integral, integral_per_section, baseline_shift, startInd, charge_scale);
+            computeALLIntegral_by_section(time, volts, npts, integration_number, integration_time, histograms_section_integral, integral_per_section, (*charge_scale), baseline_shift, startInd);
             
             if(globalArgs.save_tree) otree->Fill();
             
@@ -249,8 +248,10 @@ int main(int argc, char* argv[])
             }
             ncr_vs_seed[s] = g_ncr;
         }
-        TCanvas * cNCR_vs_seed = plotNCR(ncr_vs_seed, "seed");
-        TCanvas * cNCR_vs_time_window = plotNCR(ncr_vs_time_window, "time_window");
+        
+        TString dirname = "charge_analysis_" + TString(vol);
+        TCanvas * cNCR_vs_seed = plotNCR(ncr_vs_seed, "seed", hfile, dirname+"/Dir_NCR_vs_"+"seed");
+        TCanvas * cNCR_vs_time_window = plotNCR(ncr_vs_time_window, "time_window", hfile, dirname+"/Dir_NCR_vs_"+"time_window");
         
         cout << "Saving objects" << endl;
     
@@ -268,7 +269,6 @@ int main(int argc, char* argv[])
         objects_to_save.push_back(cNCR_vs_seed);
         objects_to_save.push_back(cNCR_vs_time_window);
         
-        TString dirname = "charge_analysis_" + TString(vol);
         for(auto obj : objects_to_save) 
         {
             hfile->cd();

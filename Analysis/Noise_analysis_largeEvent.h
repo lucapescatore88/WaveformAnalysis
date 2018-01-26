@@ -47,7 +47,7 @@ using namespace std;
 
 // Amplitude of pe calculation of raw data
 
-TGraph * formatGr(TGraph * gr, int color, int fill_bkg, TString xtitle, TString ytitle, TString title = "", int marker_style=8)
+TGraph * formatGr(TGraph * gr, int color, int fill_bkg, TString xtitle, TString ytitle, TString title = "", TString name = "", int marker_style=8)
 {
     gr->SetLineColor(color);
     gr->SetMarkerColor(color);
@@ -58,6 +58,7 @@ TGraph * formatGr(TGraph * gr, int color, int fill_bkg, TString xtitle, TString 
     if(title!="") gr->SetTitle(title);
     gr->GetYaxis()->SetTitle(ytitle);
     gr->GetXaxis()->SetTitle(xtitle);
+    if(name!="") gr->SetName(name);
 
     return gr;
 }
@@ -434,7 +435,31 @@ TCanvas * finalizeMapGraphs(std::map<string,TGraph *> &g, TString name, TString 
     return c;
 }
 
-vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Thresholds> &thresholds)
+double fitSimple1D(TH1 * h, double& error);
+TCanvas * finalizeChargeTimeWindow(TH2D * h, TGraphErrors * r, TString name) {
+    TCanvas * c = new TCanvas(name, name);
+    unsigned int Nbins = h->GetNbinsX();
+    for(unsigned int bin(0); bin<Nbins; ++bin) {
+        TH1D * proj = h->ProjectionY("proj_time_window", bin+1, bin+1);
+        
+        double x = h->GetXaxis()->GetBinCenter(bin+1);
+        double error(0);
+        double value = fitSimple1D(proj, error);
+        
+        setPoint(r,  bin, x, value, 0, error);
+        
+        delete proj;
+    }
+    
+    c->cd();
+    h->Draw("COLZ");
+    c->SetLogz();
+    r->Draw("PL+3");
+    
+    return c;
+}
+
+vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Thresholds> &thresholds, double * integration_time=0, int * integration_number=0)
 {
     string s;
     vector <TString> vol_folders;
@@ -452,6 +477,7 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
         const char* searchString = s.c_str();
         char volt [20];
         Int_t numfiles;
+        double tmp_d;
         
         if (s.find("#") == 0 || s=="") continue; // Skip commented  or empty lines
         
@@ -477,7 +503,12 @@ vector <TString> readSetupFile(ifstream * setupFile, int * data_size, vector <Th
         }
         
         if(sscanf(searchString, "Files at each voltage || %d ||", &numfiles)==1) 
-            (*data_size) = numfiles;  
+            (*data_size) = numfiles;
+        
+        if(sscanf(searchString, "Integration_time_step : %lf", &tmp_d)==1 && integration_time)
+            (*integration_time) = tmp_d;
+        if(sscanf(searchString, "Integration_time_number : %d", &numfiles)==1 && integration_number)
+            (*integration_number) = numfiles;
     }
     
     for(unsigned int i(0); i<vol_folders.size(); ++i)

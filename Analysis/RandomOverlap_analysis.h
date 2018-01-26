@@ -40,12 +40,10 @@
 
 using namespace std;
 
-vector <TString> readSetupFile_ro(ifstream * setupFile, int * data_size, double * VBD, double * VBD_error, double * integration_time, int * integration_number, vector<double> * onePE, vector<double> * onePE_error, int * Nsim)
+vector <TString> readSetupFile_ro(ifstream * setupFile, int * data_size, double * VBD, double * VBD_error, double * integration_time, int * integration_number, TString * pe_file, int * Nsim)
 {
     string s;
     vector <TString> vol_folders;
-    (*onePE).clear();
-    (*onePE_error).clear();
     (*Nsim) = 1000;
     
     while (true) 
@@ -56,6 +54,7 @@ vector <TString> readSetupFile_ro(ifstream * setupFile, int * data_size, double 
         
         const char* searchString = s.c_str();
         char volt [20];
+        char file [256];
         Int_t numfiles;
         double tmp_d;
         
@@ -63,24 +62,8 @@ vector <TString> readSetupFile_ro(ifstream * setupFile, int * data_size, double 
         
         //Find the voltages
         char pe_config[256] = "";
-        if(sscanf(searchString, "V || %s ||%[^\t\n]", volt, pe_config)>=1)
-        {
+        if(sscanf(searchString, "V || %s ||", volt)==1)
             vol_folders.push_back(volt);
-            //if(thres_config == "") thresholds.push_back(Thresholds(default_thrs));
-            if(pe_config == "") {
-                (*onePE).push_back(1);
-                (*onePE_error).push_back(1);
-            } else {
-                double pe, pe_error;
-				if(sscanf(pe_config, " 1PE_Charge[mV.ns] = %lf pm %lf", &pe, &pe_error)==2) {
-                    (*onePE).push_back(pe*1e-3*1e-9);
-                    (*onePE_error).push_back(pe_error*1e-3*1e-9);
-				} else {
-                    (*onePE).push_back(1);
-                    (*onePE_error).push_back(1);
-                }
-			}
-        }
         
         if(sscanf(searchString, "Files at each voltage || %d ||", &numfiles)==1) 
             (*data_size) = numfiles;
@@ -95,17 +78,39 @@ vector <TString> readSetupFile_ro(ifstream * setupFile, int * data_size, double 
         if(sscanf(searchString, "Integration_time_number : %d", &numfiles)==1)
             (*integration_number) = numfiles;
         
+        if(sscanf(searchString, "pe_file : %s", file)==1)
+            (*pe_file) = file;
+        
         if(sscanf(searchString, "nEventSimulation : %d", &numfiles)==1)
             (*Nsim) = numfiles;
     }
     
     for(unsigned int i(0); i<vol_folders.size(); ++i)
-	    cout << "Voltage: " << vol_folders[i] << " // " << Form("1PE_Charge[mV.ns] = %2.2lf pm %2.2lf", onePE->at(i), onePE_error->at(i)) << endl;
+	    cout << "Voltage: " << vol_folders[i] << endl;
 
     return vol_folders;
 }
 
-void initChargeIntegrationTime_dist(int n, double step, vector<TH1D*>& hs, double tau_dcr, double dV, double pe_charge=1000*1e-3*1e-9, TString unit="[?]") {
+TGraphErrors * getPeFromFile(TString pe_file, TString vol, vector<double>& OnePECharge, vector<double>& OnePECharge_error) {
+    TFile * f = new TFile(pe_file);
+    //~ f->ls();
+    f->cd("pulse_shape_"+vol);
+    TGraphErrors * pe = (TGraphErrors*) gDirectory->Get("1PE_Charge_Time_Window_"+vol);
+    if(pe->GetN() != OnePECharge.size()) {
+        cout << "Number of integration steps does not match the PE charge graph size !" << endl;
+        return 0;
+    }
+    for(unsigned int i(0); i<pe->GetN(); ++i) {
+        double x;
+        pe->GetPoint(i,x,OnePECharge[i]);
+        OnePECharge[i] = OnePECharge[i]*1e-3*1e-9;
+        OnePECharge_error[i] = pe->GetErrorY(i)*1e-3*1e-9;
+    }
+    f->Close();
+    return pe;
+}
+
+void initChargeIntegrationTime_dist(int n, double step, vector<TH1D*>& hs, double tau_dcr, double dV, vector<double> pe_charge, vector<double> scale, TString unit="[?]") {
     hs.clear();
     int nbins = 100;
     
@@ -114,7 +119,7 @@ void initChargeIntegrationTime_dist(int n, double step, vector<TH1D*>& hs, doubl
         double expected_N_pulses = integration_window/tau_dcr;
         TString name = Form("ChargeIntegratedOver%2.0lfns_dV=%2.2lfV",integration_window,dV);
         TString title = Form("Charge integrated over %2.0lf ns at #DeltaV = %2.2fV",integration_window,dV);
-        TH1D * h = new TH1D(name, title, nbins, 0, 10*TMath::Sqrt(expected_N_pulses)*pe_charge);
+        TH1D * h = new TH1D(name, title, nbins, 0, 10*TMath::Sqrt(expected_N_pulses)*(pe_charge[s]/scale[s]));
         h->GetXaxis()->SetTitle("Integrated charge "+unit);
         h->GetYaxis()->SetTitle("Number of entries");
         //cout << "Created histogram with title: " << title << endl;
@@ -124,7 +129,7 @@ void initChargeIntegrationTime_dist(int n, double step, vector<TH1D*>& hs, doubl
     return;
 }
 
-double computeIntegral_by_section(double time[], double amp[], int npts, double time_step, TH1D * h, double baseline_shift=0, int startInd=0, double pe_scale=1) {
+double computeIntegral_by_section(double time[], double amp[], int npts, double time_step, TH1D * h, double pe_scale=1, double baseline_shift=0, int startInd=0) {
     double tot_integral = 0.0;
     double pulse_integral = 0.0;
     double t0 = time[startInd];
@@ -145,12 +150,12 @@ double computeIntegral_by_section(double time[], double amp[], int npts, double 
     return (tot_integral/pe_scale)/counter;     // average charge in time window
 }
 
-void computeALLIntegral_by_section(double time[], double amp[], int npts, int n_int, double step, vector<TH1D*> hs, vector<double>& average_charge, double baseline_shift=0, int startInd=0, double pe_scale=1) {
+void computeALLIntegral_by_section(double time[], double amp[], int npts, int n_int, double step, vector<TH1D*> hs, vector<double>& average_charge, vector<double> pe_scale, double baseline_shift=0, int startInd=0) {
     average_charge.clear();
     // integration per section
     for(unsigned int s(0); s<n_int; ++s) {
         double integration_window = (s+1)*step;
-        average_charge.push_back(computeIntegral_by_section(time,amp,npts,integration_window,hs[s],baseline_shift,startInd,pe_scale));
+        average_charge.push_back(computeIntegral_by_section(time,amp,npts,integration_window,hs[s],pe_scale[s],baseline_shift,startInd));
     }
     return;
 }
@@ -158,7 +163,10 @@ void computeALLIntegral_by_section(double time[], double amp[], int npts, int n_
 void initOutputFile_ro(TFile * f, vector<TString> vol_folders) {
 	for(unsigned int i(0); i<vol_folders.size(); ++i) {
 		TString dirname = "charge_analysis_" + vol_folders[i];
-		TDirectory *cdvbd = f->mkdir(dirname);
+		TDirectory *sub = f->mkdir(dirname);
+        sub->cd();
+        TDirectory *subsub1 = sub->mkdir("Dir_NCR_vs_seed");
+        TDirectory *subsub2 = sub->mkdir("Dir_NCR_vs_time_window");
 	}
 	return;
 }
